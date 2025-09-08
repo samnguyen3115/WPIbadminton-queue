@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Badminton Queue Management</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-header">
+    <h1>Badminton Queue System</h1>
+  </div>
+  
+  <div class="controls">
+    <button onclick="addPlayer()" class="btn btn-success">Add Player</button>
+    <button onclick="deletePlayer()" class="btn btn-danger">Delete Player</button>
+    <button onclick="showAdvanceMenu()" class="btn btn-advance">Manual Advance Player</button>
+  </div>
+  <div class="layout-container">
+    <div class="main-area">
+      <div class="queue-section queue-left">
+        <div class="queue-header">
+          <h3>🏆 Advanced Queue</h3>
+          <div class="queue-info">Drag players here</div>
+        </div>
+        <div id="player-queue" class="queue-content"></div>
+      </div>
+      
+      <div class="court-area">
+        <div class="entrance-label">Entrance</div>
+        <div class="courts-grid">
+          <!-- Outside Courts (G1-G2) -->
+          <div class="court" id="G1-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">G1 (Game)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('G1')" title="Kick all players from court">✕</button>
+                <button class="rotate-btn" onclick="rotateCourtPlayers('G1')" title="Finish game - rotate players">🔄</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('G1', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+          <div class="court" id="W1-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">W1 (Warm up)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('W1')" title="Kick all players from court">✕</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('W1', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+          <div class="court" id="W2-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">W2 (Warm up)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('W2')" title="Kick all players from court">✕</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('W2', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+          <div class="court" id="G2-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">G2 (Game)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('G2')" title="Kick all players from court">✕</button>
+                <button class="rotate-btn" onclick="rotateCourtPlayers('G2')" title="Finish game - rotate players">🔄</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('G2', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+          
+          <!-- Inside Courts (W1-W4) -->
+          <div class="court" id="G3-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">G3 (Game)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('G3')" title="Kick all players from court">✕</button>
+                <button class="rotate-btn" onclick="rotateCourtPlayers('G3')" title="Finish game - rotate players">🔄</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('G3', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+          <div class="court" id="W3-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">W3 (Warm up)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('W3')" title="Kick all players from court">✕</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('W3', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+          <div class="court" id="W4-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">W4 (Warm up)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('W4')" title="Kick all players from court">✕</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('W4', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+          <div class="court" id="G4-court">
+            <div class="court-header">
+              <div class="court-title">
+                <span class="court-name">G4 (Game)</span>
+                <button class="kick-all-btn" onclick="kickAllPlayersFromCourt('G4')" title="Kick all players from court">✕</button>
+                <button class="rotate-btn" onclick="rotateCourtPlayers('G4')" title="Finish game - rotate players">🔄</button>
+              </div>
+              <select class="court-type-dropdown" onchange="changeCourtType('G4', this.value)">
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+                <option value="training">Training</option>
+              </select>
+            </div>
+            <div class="court-players"></div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="queue-section queue-right">
+        <div class="queue-header">
+          <h3>Intermediate Queue</h3>
+          <div class="queue-info">Drag players here</div>
+        </div>
+        <div id="player-queue-right" class="queue-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase CDN -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { 
+      getFirestore, 
+      collection, 
+      addDoc, 
+      getDocs, 
+      updateDoc, 
+      deleteDoc, 
+      doc, 
+      onSnapshot,
+      query,
+      where,
+      setDoc,
+      getDoc
+    } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+    
+    // Make Firebase modules available globally
+    window.FirebaseApp = { initializeApp };
+    window.FirebaseFirestore = { 
+      getFirestore, 
+      collection, 
+      addDoc, 
+      getDocs, 
+      updateDoc, 
+      deleteDoc, 
+      doc, 
+      onSnapshot,
+      query,
+      where,
+      setDoc,
+      getDoc
+    };
+    
+    console.log('🔥 Firebase modules loaded');
+  </script>
+  
+  <!-- Firebase config -->
+  <script src="config.js"></script>
+  
+  <!-- Main application scripts -->
+  <script src="core.js"></script>
+  <script src="court-management.js"></script>
+  <script src="ui-interactions.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
