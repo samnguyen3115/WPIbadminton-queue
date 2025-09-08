@@ -101,7 +101,7 @@ body {
 
 .main-area {
   display: grid;
-  grid-template-columns: 250px 1fr 250px;
+  grid-template-columns: 200px 1fr 200px;
   gap: 1.5rem;
   height: 100%;
   background: rgba(255, 255, 255, 0.95);
@@ -176,9 +176,9 @@ body {
 .player-box {
   background: white;
   border: 2px solid #e0e0e0;
-  border-radius: 12px;
-  padding: 0.75rem;
-  font-size: 0.875rem;
+  border-radius: 8px;
+  padding: 0.5rem;
+  font-size: 0.75rem;
   font-weight: 500;
   color: #333;
   cursor: grab;
@@ -233,7 +233,7 @@ body {
 .queue-item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
   transition: all 0.3s ease;
   cursor: grab;
 }
@@ -251,12 +251,12 @@ body {
   background: linear-gradient(135deg, #333, #555);
   color: white;
   border-radius: 50%;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 700;
   flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -274,6 +274,10 @@ body {
 
 .player-name {
   flex: 1;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 
@@ -301,10 +305,10 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(2, 1fr);
-  gap: 1rem;
+  gap: 0.75rem;
   width: 100%;
   height: 100%;
-  max-height: 500px;
+  max-height: 550px;
 }
 
 
@@ -323,10 +327,10 @@ body {
 .court {
   background: white;
   border: 3px solid #e0e0e0;
-  border-radius: 16px;
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
-  padding: 1rem;
+  padding: 0.75rem;
   position: relative;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
   transition: all 0.3s ease;
@@ -358,10 +362,10 @@ body {
 .court-header {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
   padding-bottom: 0.5rem;
-  border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .court-title {
@@ -372,31 +376,11 @@ body {
 
 .court-name {
   font-weight: 700;
-  font-size: 1.125rem;
+  font-size: 0.9rem;
   color: #333;
 }
 
-.kick-all-btn {
-  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-  border: none;
-  border-radius: 6px;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
-  color: white;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
-}
-
-.kick-all-btn:hover {
-  background: linear-gradient(135deg, #ee5a24, #ff6b6b);
-  transform: scale(1.05);
-  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
-}
-
-.kick-all-btn:active {
-  transform: scale(0.95);
-}
+/* Kick all button styles removed */
 
 .rotate-btn {
   background: linear-gradient(135deg, #4CAF50, #45a049);
@@ -447,14 +431,15 @@ body {
 .court-players {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.25rem;
   flex: 1;
 }
 
 .court .player-box {
-  font-size: 0.75rem;
-  padding: 0.5rem;
+  font-size: 0.7rem;
+  padding: 0.35rem;
   margin: 0;
+  line-height: 1.2;
 }
 
 
@@ -506,12 +491,12 @@ body {
 
 @media (max-width: 1200px) {
   .main-area {
-    grid-template-columns: 200px 1fr 200px;
-    gap: 1rem;
+    grid-template-columns: 180px 1fr 180px;
+    gap: 0.75rem;
   }
   
   .courts-grid {
-    gap: 1rem;
+    gap: 0.5rem;
   }
 }
 
