@@ -756,7 +756,7 @@ async function autoFillEmptyCourts() {
               pendingUpdates.add(player.id);
               await updatePlayerStatus(playerIndex, gCourtName);
               console.log(
-                `🎾 Balanced: Moved ${player.name} from ${wCourtName} to game court ${gCourtName}`
+                `Balanced: Moved ${player.name} from ${wCourtName} to game court ${gCourtName}`
               );
             }
           }
@@ -867,12 +867,12 @@ function startPeriodicCourtCheck() {
 
   periodicCheckInterval = setInterval(() => {
     if (!isDragging) {
-      console.log("⏰ Periodic court check...");
+      console.log("Periodic court check...");
       debouncedAutoFill();
     }
   }, 30000);
 
-  console.log("⏰ Started periodic court fill check (every 30 seconds)");
+  console.log("Started periodic court fill check (every 30 seconds)");
 }
 
 function stopPeriodicCourtCheck() {
