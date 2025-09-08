@@ -16,12 +16,13 @@
     <button onclick="addPlayer()" class="btn btn-success">Add Player</button>
     <button onclick="deletePlayer()" class="btn btn-danger">Delete Player</button>
     <button onclick="showAdvanceMenu()" class="btn btn-advance">Manual Advance Player</button>
+    <button onclick="syncWithFirebase()" class="btn btn-sync">Sync with Database</button>
   </div>
   <div class="layout-container">
     <div class="main-area">
       <div class="queue-section queue-left">
         <div class="queue-header">
-          <h3>🏆 Advanced Queue</h3>
+          <h3>Advanced Queue</h3>
           <div class="queue-info">Drag players here</div>
         </div>
         <div id="player-queue" class="queue-content"></div>
@@ -194,9 +195,6 @@
   
   <!-- Firebase config -->
   <script src="config.js"></script>
-  
-  <!-- Controller for debounced auto-fill -->
-  <script src="js/controllers/debounced-auto-fill.js"></script>
   
   <!-- Main application script -->
   <script src="script.js"></script>

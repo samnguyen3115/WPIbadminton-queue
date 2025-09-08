@@ -93,6 +93,23 @@ body {
   color: white;
 }
 
+.btn-sync {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+}
+
+/* Auto-sync button removed - using only manual sync */
+
+.sync-status {
+  display: inline-block;
+  margin-left: 10px;
+  font-size: 0.8rem;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
 
 .layout-container {
   padding: 1rem 2rem 2rem;
