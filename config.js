@@ -245,6 +245,28 @@ const courtsDB = {
       console.error('❌ Error getting court type:', error);
       return 'intermediate'; 
     }
+  },
+  
+  // New function to get all courts at once
+  getAllCourts: async () => {
+    if (!db) throw new Error('Firebase not initialized');
+    const { collection, getDocs } = window.FirebaseFirestore;
+    
+    try {
+      const querySnapshot = await getDocs(collection(db, 'courts'));
+      const courts = [];
+      querySnapshot.forEach((doc) => {
+        courts.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+      console.log('✅ Got all courts:', courts.length);
+      return courts;
+    } catch (error) {
+      console.error('❌ Error getting all courts:', error);
+      return [];
+    }
   }
 };
 

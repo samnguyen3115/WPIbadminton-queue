@@ -1,7 +1,3 @@
-/**
- * Badminton Queue System
- * Organized JavaScript File
- */
 
 //======================================================
 // GLOBAL VARIABLES AND STATE MANAGEMENT
@@ -15,6 +11,12 @@ let courtTypes = {};
 let dragPlayerIndex = null;
 let firebaseUnsubscribe = null;
 let courtsUnsubscribe = null;
+
+// Variables for offline-first approach
+let deletedPlayers = []; // IDs of players to delete on sync
+let lastSyncTime = null; // When we last synced with Firebase
+let localBackupInterval = null; // For periodic local backups
+const LOCAL_STORAGE_KEY = 'badminton_queue_data';
 
 const courtPairs = {
   G1: "W1",
@@ -38,6 +40,13 @@ let periodicCheckInterval = null;
 // FIREBASE INITIALIZATION AND CONNECTION
 //======================================================
 
+/**
+ * Initializes the Firebase connection and loads initial data
+ * - Connects to Firebase services
+ * - Loads players data from Firebase database
+ * - Loads court data from Firebase database
+ * - Sets up local backups and periodic court checks
+ */
 async function initializeFirebase() {
   try {
     console.log("Connecting to Firebase...");
@@ -53,46 +62,31 @@ async function initializeFirebase() {
       throw new Error(connectionStatus.message);
     }
 
-    firebaseUnsubscribe = window.playersDB.onPlayersChange((updatedPlayers) => {
-      console.log("Players updated from Firebase:", updatedPlayers.length);
-
-      let hasOwnUpdates = false;
-      updatedPlayers.forEach((player) => {
-        if (pendingUpdates.has(player.id)) {
-          hasOwnUpdates = true;
-          pendingUpdates.delete(player.id);
-        }
-      });
-
-      players = updatedPlayers;
-      initializePlayerArrays();
-
-      if (!isUpdatingFirebase || !hasOwnUpdates) {
-        renderPlayerQueue();
-        renderCourtPlayers();
-      }
-
-      console.log("Firebase connected (" + players.length + " players)");
-
-      if (!isDragging && !isUpdatingFirebase) {
-        debouncedAutoFill();
+    // Load players once at the start of practice
+    console.log("Loading players from Firebase...");
+    players = await window.playersDB.getAllPlayers();
+    console.log("Players loaded from Firebase:", players.length);
+    
+    // Make sure all loaded players are in the queue (not on courts)
+    players.forEach(player => {
+      if (player.status && !player.status.startsWith('queue-')) {
+        // Reset any player on courts to their queue
+        player.status = player.qualification === 'advanced' ? 'queue-advanced' : 'queue-intermediate';
       }
     });
-
-    courtsUnsubscribe = window.courtsDB.onCourtsChange((updatedCourts) => {
-      console.log("Courts updated from Firebase:", updatedCourts.length);
-      courtTypes = {};
-      updatedCourts.forEach((court) => {
-        courtTypes[court.name] = court.type;
-      });
-
-      syncWCourtTypes();
-
-      renderCourtPlayers();
-      updateCourtDropdowns();
-    });
-
-    startPeriodicCourtCheck();
+    
+    // Initialize local arrays
+    initializePlayerArrays();
+    renderPlayerQueue();
+    
+    // Initialize court types with defaults - courts are only stored locally now
+    initializeDefaultCourtTypes();
+    renderCourtPlayers();
+    updateCourtDropdowns();
+    
+    
+    return;
+    
   } catch (error) {
     console.error("Firebase initialization failed:", error);
     console.log("Firebase connection failed");
@@ -108,6 +102,12 @@ async function initializeFirebase() {
 // PLAYER DATA MANAGEMENT
 //======================================================
 
+/**
+ * Organizes players into queues and courts
+ * - Creates sorted arrays for advanced and intermediate queues
+ * - Builds court assignment map to track who is on which court
+ * - Used whenever player data changes to keep local data structures in sync
+ */
 function initializePlayerArrays() {
   advancedQueue = players
     .map((_, i) => i)
@@ -135,126 +135,81 @@ function initializePlayerArrays() {
   );
 }
 
-async function updatePlayerStatus(playerIndex, newStatus) {
-  if (!players[playerIndex] || !window.playersDB) return;
 
-  const player = players[playerIndex];
-  const oldStatus = player.status;
 
-  try {
-    isUpdatingFirebase = true;
-    pendingUpdates.add(player.id);
-
-    player.status = newStatus;
-    initializePlayerArrays();
-    renderPlayerQueue();
-    renderCourtPlayers();
-
-    await window.playersDB.updatePlayer(player.id, { status: newStatus });
-    console.log(
-      "Updated " +
-        player.name +
-        " from " +
-        oldStatus +
-        " to " +
-        newStatus +
-        " in Firebase"
-    );
-
-    if (
-      oldStatus &&
-      !oldStatus.startsWith("queue") &&
-      newStatus.startsWith("queue")
-    ) {
-      setTimeout(() => {
-        if (!isDragging) {
-          debouncedAutoFill();
-        }
-      }, 1000);
-    }
-  } catch (error) {
-    console.error("Failed to update player in Firebase:", error);
-
-    player.status = oldStatus;
-    initializePlayerArrays();
-    renderPlayerQueue();
-    renderCourtPlayers();
-  } finally {
-    setTimeout(() => {
-      isUpdatingFirebase = false;
-      pendingUpdates.delete(player.id);
-    }, 500);
-  }
-}
-
-async function updatePlayerStatusAndQualification(
+/**
+ * Updates both a player's status and qualification level
+ * - Used when moving players between different level queues
+ * - Updates player's position in queue using timestamps
+ * - Updates UI and saves changes to local storage
+ * 
+ * @param {number} playerIndex - Index of player in players array
+ * @param {string} newStatus - New status/location (court name or queue)
+ * @param {string} newQualification - Player's skill level (advanced/intermediate)
+ */
+function updatePlayerStatus(
   playerIndex,
   newStatus,
   newQualification
 ) {
-  if (!players[playerIndex] || !window.playersDB) return;
+  if (!players[playerIndex]) return;
 
   const player = players[playerIndex];
   const oldStatus = player.status;
   const oldQualification = player.qualification;
 
   try {
-    isUpdatingFirebase = true;
-    pendingUpdates.add(player.id);
-
     let orderToAssign = player.order || Date.now();
 
     if (newStatus.startsWith("queue-")) {
       orderToAssign = Date.now();
     }
 
+    // Update local state only
     player.status = newStatus;
     player.qualification = newQualification;
+    player.modified = true; // Mark this player as modified
+    
     if (newStatus.startsWith("queue-") && orderToAssign !== player.order) {
       player.order = orderToAssign;
     }
+    
     initializePlayerArrays();
     renderPlayerQueue();
     renderCourtPlayers();
-
-    await window.playersDB.updatePlayerStatusAndQualification(
-      player.id,
-      newStatus,
-      newQualification
-    );
-
-    if (newStatus.startsWith("queue-") && orderToAssign !== player.order) {
-      await window.playersDB.updatePlayerOrder(player.id, orderToAssign);
-    }
+    
+    // Save to local storage as backup
+    saveToLocalStorage();
 
     console.log(
-      `Updated ${player.name} to ${newStatus} with qualification ${newQualification} and order ${orderToAssign}`
+      `Updated ${player.name} to ${newStatus} with qualification ${newQualification} and order ${orderToAssign} in memory`
     );
   } catch (error) {
     console.error(
-      "Failed to update player status and qualification in Firebase:",
+      "Failed to update player status and qualification:",
       error
     );
 
+    // Revert changes on error
     player.status = oldStatus;
     player.qualification = oldQualification;
     initializePlayerArrays();
     renderPlayerQueue();
     renderCourtPlayers();
-  } finally {
-    setTimeout(() => {
-      isUpdatingFirebase = false;
-      pendingUpdates.delete(player.id);
-    }, 500);
   }
 }
 
-async function reorderPlayersInQueue(queueType, newOrderArray) {
-  if (!window.playersDB) return;
-
+/**
+ * Reorders players in a queue after drag and drop
+ * - Updates the order timestamp for each player based on their new position
+ * - Ensures queue display matches the drag-and-drop arrangement
+ * - Saves changes to local storage
+ * 
+ * @param {string} queueType - Type of queue being reordered (advanced/intermediate)
+ * @param {Array} newOrderArray - Array of player indices in their new order
+ */
+function reorderPlayersInQueue(queueType, newOrderArray) {
   try {
-    isUpdatingFirebase = true;
-
     const baseTime = Date.now();
 
     for (let i = 0; i < newOrderArray.length; i++) {
@@ -263,31 +218,21 @@ async function reorderPlayersInQueue(queueType, newOrderArray) {
       if (player) {
         const newOrder = baseTime + i;
         player.order = newOrder;
-        pendingUpdates.add(player.id);
-
-        await window.playersDB.updatePlayerOrder(player.id, newOrder);
+        player.modified = true; // Mark this player as modified
       }
     }
 
     initializePlayerArrays();
     renderPlayerQueue();
+    
+    // Save to local storage as backup
+    saveToLocalStorage();
 
     console.log(
-      `Reordered ${queueType} queue with ${newOrderArray.length} players`
+      `Reordered ${queueType} queue with ${newOrderArray.length} players in memory`
     );
   } catch (error) {
     console.error("Failed to reorder queue:", error);
-  } finally {
-    setTimeout(() => {
-      isUpdatingFirebase = false;
-
-      newOrderArray.forEach((playerIndex) => {
-        const player = players[playerIndex];
-        if (player) {
-          pendingUpdates.delete(player.id);
-        }
-      });
-    }, 500);
   }
 }
 
@@ -295,19 +240,21 @@ async function reorderPlayersInQueue(queueType, newOrderArray) {
 // PLAYER MOVEMENT & ASSIGNMENT
 //======================================================
 
+/**
+ * Moves a player to a specific court
+ * - Enforces court type restrictions (training, advanced, intermediate)
+ * - Checks qualification match for court type
+ * - Ensures court is not already full
+ * - Updates player status to move them to the court
+ * 
+ * @param {number} playerIndex - Index of player in players array
+ * @param {string} court - Court identifier (G1-G4, W1-W4)
+ */
 function moveToCourt(playerIndex, court) {
   if (!players[playerIndex]) return;
 
   const player = players[playerIndex];
   const courtType = courtTypes[court] || "intermediate";
-
-  if (courtType === "training") {
-    alert(`Court ${court} is set to TRAINING mode. No players can join.`);
-    console.log(
-      `Cannot move ${player.name} to ${court} - court is in training mode`
-    );
-    return;
-  }
 
   if (courtType === "advanced" && player.qualification !== "advanced") {
     alert(
@@ -338,9 +285,18 @@ function moveToCourt(playerIndex, court) {
     return;
   }
 
-  updatePlayerStatus(playerIndex, court);
+  updatePlayerStatus(playerIndex, court,player.qualification);
 }
 
+/**
+ * Moves a player to a specific queue type
+ * - Used to move players from courts back to queues
+ * - Can also change player's qualification level
+ * - Triggers auto-fill to fill vacant court spots
+ * 
+ * @param {number} playerIndex - Index of player in players array
+ * @param {string} queueType - Queue to move player to (advanced/intermediate)
+ */
 function moveToSpecificQueue(playerIndex, queueType) {
   if (!players[playerIndex]) return;
 
@@ -358,7 +314,7 @@ function moveToSpecificQueue(playerIndex, queueType) {
     newQualification = "intermediate";
   }
 
-  updatePlayerStatusAndQualification(playerIndex, newStatus, newQualification);
+  updatePlayerStatus(playerIndex, newStatus, newQualification);
 
   if (wasOnCourt && previousCourt) {
     setTimeout(() => {
@@ -369,39 +325,20 @@ function moveToSpecificQueue(playerIndex, queueType) {
   }
 }
 
-function moveToQueue(playerIndex) {
-  if (!players[playerIndex]) return;
-
-  const player = players[playerIndex];
-  const wasOnCourt = player.status && !player.status.includes("queue");
-  const previousCourt = wasOnCourt ? player.status : null;
-
-  let newStatus;
-
-  if (
-    player.qualification &&
-    player.qualification.toLowerCase() === "advanced"
-  ) {
-    newStatus = "queue-advanced";
-  } else {
-    newStatus = "queue-intermediate";
-  }
-
-  updatePlayerStatus(playerIndex, newStatus);
-
-  if (wasOnCourt && previousCourt) {
-    setTimeout(() => {
-      if (!isDragging) {
-        debouncedAutoFill();
-      }
-    }, 1000);
-  }
-}
 
 //======================================================
 // AUTO ADVANCE & QUEUE MANAGEMENT
 //======================================================
 
+/**
+ * Advances a player from a specific queue to a court
+ * - Takes the next player from the specified queue
+ * - Checks if court is available and not in training mode
+ * - Ensures player qualification matches court type
+ * 
+ * @param {string} courtName - Court identifier to advance player to
+ * @param {string} queueType - Queue to take player from (advanced/intermediate)
+ */
 async function autoAdvanceFromQueue(courtName, queueType = "advanced") {
   const queue = queueType === "advanced" ? advancedQueue : intermediateQueue;
 
@@ -456,7 +393,7 @@ async function autoAdvanceFromQueue(courtName, queueType = "advanced") {
   const nextPlayer = players[nextPlayerIndex];
 
   try {
-    await updatePlayerStatus(nextPlayerIndex, courtName);
+    await updatePlayerStatus(nextPlayerIndex, courtName,player.qualification);
     console.log(
       `Auto-advanced ${nextPlayer.name} from ${queueType} queue to ${courtName}`
     );
@@ -465,91 +402,22 @@ async function autoAdvanceFromQueue(courtName, queueType = "advanced") {
   }
 }
 
-async function autoAdvanceToVacatedCourt(courtName) {
-  console.log(
-    `Court ${courtName} became available, looking for next player...`
-  );
-  await autoAdvanceToCourt(courtName);
-}
-
-async function autoAdvanceToCourt(courtName) {
-  if (!courtName) {
-    console.log(`Invalid court name for auto-advance`);
-    return;
-  }
-
-  const courtType = courtTypes[courtName] || "intermediate";
-
-  const currentPlayersOnCourt = courtAssignments[courtName] || [];
-  if (currentPlayersOnCourt.length >= 4) {
-    console.log(
-      `Cannot auto-advance to ${courtName} - court is full (${currentPlayersOnCourt.length}/4 players)`
-    );
-    return;
-  }
-
-  if (courtType === "training") {
-    console.log(
-      `Cannot auto-advance to ${courtName} - court is in training mode`
-    );
-    return;
-  }
-
-  let nextPlayerIndex = null;
-  let fromQueue = null;
-
-  if (courtType === "advanced") {
-    if (advancedQueue.length > 0) {
-      nextPlayerIndex = advancedQueue[0];
-      fromQueue = "advanced";
-    }
-  } else if (courtType === "intermediate") {
-    if (intermediateQueue.length > 0) {
-      nextPlayerIndex = intermediateQueue[0];
-      fromQueue = "intermediate";
-    }
-  }
-
-  if (nextPlayerIndex === null) {
-    console.log(`No players available to auto-advance to ${courtName}`);
-    return;
-  }
-
-  const nextPlayer = players[nextPlayerIndex];
-  if (!nextPlayer) {
-    console.log(`Player not found for auto-advance to ${courtName}`);
-    return;
-  }
-
-  if (courtType === "advanced" && nextPlayer.qualification !== "advanced") {
-    console.log(
-      `Cannot auto-advance ${nextPlayer.name} to ${courtName} - advanced court requires advanced qualification`
-    );
-    return;
-  }
-
-  try {
-    await updatePlayerStatus(nextPlayerIndex, courtName);
-    console.log(
-      "Auto-advanced " +
-        nextPlayer.name +
-        " from " +
-        fromQueue +
-        " queue to " +
-        courtName
-    );
-  } catch (error) {
-    console.error("Failed to auto-advance player to " + courtName + ":", error);
-  }
-}
-
 //======================================================
 // COURT MANAGEMENT
 //======================================================
 
-// kickAllPlayersFromCourt function has been removed as it's replaced by rotateCourtPlayers functionality
 
-async function changeCourtType(courtName, courtType) {
+/**
+ * Changes the type of a court (advanced, intermediate, training)
+ * - Enforces restrictions on which courts can be changed
+ * - Maintains synchronization between paired G and W courts
+ * - Handles player movement when changing to/from training mode
+ * - Updates UI and saves changes to local storage
+ * 
+ * @param {string} courtName - Court identifier to change (G1-G4)
+ * @param {string} courtType - New court type (advanced/intermediate/training)
+ */
+function changeCourtType(courtName, courtType) {
   if (!courtName || !courtType) {
     console.error("Court name and type are required");
     return;
@@ -570,28 +438,45 @@ async function changeCourtType(courtName, courtType) {
     return;
   }
 
-  if (!window.courtsDB) {
-    console.error("Firebase not connected!");
-    return;
-  }
-
   try {
-    console.log("Updating court type...");
-    await window.courtsDB.updateCourtType(courtName.trim(), courtType);
-
+    console.log(`Changing court ${courtName} type to ${courtType}...`);
+    
+    const oldCourtType = courtTypes[courtName.trim()] || "intermediate";
+    
+    // Update in memory only - no longer syncing to Firebase
+    courtTypes[courtName.trim()] = courtType;
+    
     if (courtName.startsWith("G")) {
       const wCourtName = courtPairs[courtName];
-      await window.courtsDB.updateCourtType(wCourtName, courtType);
-      console.log(`Synced ${wCourtName} type with ${courtName}: ${courtType}`);
+      courtTypes[wCourtName] = courtType;
+      console.log(`Synced ${wCourtName} type with ${courtName}: ${courtType} in memory`);
     }
+    
+    // Handle players on court based on the new court type
+    handleCourtTypeChange(courtName, oldCourtType, courtType);
+    
+    // Update UI and save to local storage
+    syncWCourtTypes();
+    renderCourtPlayers();
+    updateCourtDropdowns();
+    saveToLocalStorage();
 
-    console.log("Updated court " + courtName + " to " + courtType);
+    console.log("Updated court " + courtName + " to " + courtType + " in memory");
   } catch (error) {
     console.error("Failed to update court type:", error);
   }
 }
 
-async function rotateCourtPlayers(gCourtName) {
+/**
+ * Rotates players between courts in a G-W pair
+ * - Moves G court players back to queue
+ * - Moves W court players to G court
+ * - Triggers auto-fill to populate empty spots in W court
+ * - Essential for court rotation flow management
+ * 
+ * @param {string} gCourtName - G court identifier to rotate (G1-G4)
+ */
+function rotateCourtPlayers(gCourtName) {
   if (!gCourtName.startsWith("G")) {
     console.error("Rotation can only be triggered from G-Courts");
     return;
@@ -602,8 +487,7 @@ async function rotateCourtPlayers(gCourtName) {
   const wCourtPlayers = courtAssignments[wCourtName] || [];
 
   try {
-    isUpdatingFirebase = true;
-
+    // Move G court players to queue
     for (const playerIndex of gCourtPlayers) {
       const player = players[playerIndex];
       if (player) {
@@ -613,25 +497,26 @@ async function rotateCourtPlayers(gCourtName) {
             : "queue-intermediate";
         player.status = queueType;
         player.order = Date.now();
-        pendingUpdates.add(player.id);
-        await updatePlayerStatus(playerIndex, queueType);
+        player.modified = true;
         console.log(`Moved ${player.name} from ${gCourtName} back to queue`);
       }
     }
 
+    // Move W court players to G court
     for (const playerIndex of wCourtPlayers) {
       const player = players[playerIndex];
       if (player) {
         player.status = gCourtName;
-        pendingUpdates.add(player.id);
-        await updatePlayerStatus(playerIndex, gCourtName);
+        player.modified = true;
         console.log(`Moved ${player.name} from ${wCourtName} to ${gCourtName}`);
       }
     }
 
+    // Update UI and save to local storage
     initializePlayerArrays();
     renderPlayerQueue();
     renderCourtPlayers();
+    saveToLocalStorage();
 
     setTimeout(() => {
       autoFillEmptyCourts();
@@ -640,13 +525,91 @@ async function rotateCourtPlayers(gCourtName) {
     console.log(`Completed rotation for ${gCourtName}-${wCourtName} pair`);
   } catch (error) {
     console.error(`Failed to rotate players for ${gCourtName}:`, error);
-  } finally {
-    setTimeout(() => {
-      isUpdatingFirebase = false;
-    }, 1000);
   }
 }
 
+/**
+ * Handles player movement when a court type changes
+ * - Manages both G court and its paired W court
+ * - When changing to training mode: moves all players to their respective queues
+ * - When changing from training mode: triggers auto-fill to populate courts
+ * - Uses batch processing to avoid race conditions
+ * 
+ * @param {string} courtName - Court identifier being changed
+ * @param {string} oldCourtType - Previous court type
+ * @param {string} newCourtType - New court type
+ */
+function handleCourtTypeChange(courtName, oldCourtType, newCourtType) {
+  // Get both courts in a pair (G and W courts)
+  const courts = [courtName];
+  const isGCourt = courtName.startsWith("G");
+  const pairedCourtName = courtPairs[courtName];
+  
+  if (isGCourt && pairedCourtName) {
+    courts.push(pairedCourtName);
+  }
+  
+  console.log(`Handling court type change for ${courts.join(', ')} from ${oldCourtType} to ${newCourtType}`);
+  
+  // Handle players when changing to training mode (kick all players)
+  if (newCourtType === "training") {
+    // First identify all players that need to be moved
+    const playersToMove = [];
+    
+    courts.forEach(court => {
+      const playersOnCourt = courtAssignments[court] || [];
+      if (playersOnCourt.length > 0) {
+        console.log(`Court ${court} changed to training mode. Will move ${playersOnCourt.length} player(s) to queue.`);
+        
+        // Add each player to our list to move
+        for (const playerIndex of playersOnCourt) {
+          if (players[playerIndex]) {
+            playersToMove.push({
+              playerIndex: playerIndex,
+              player: players[playerIndex],
+              fromCourt: court
+            });
+          }
+        }
+      }
+    });
+    
+    // Now move all identified players to their respective queues
+    for (const item of playersToMove) {
+      const queueType = item.player.qualification === "advanced" ? "advanced" : "intermediate";
+      const queueStatus = queueType === "advanced" ? "queue-advanced" : "queue-intermediate";
+      
+      // Directly update player status to prevent race conditions
+      item.player.status = queueStatus;
+      item.player.order = Date.now();
+      item.player.modified = true;
+      
+      console.log(`Moving ${item.player.name} from court ${item.fromCourt} to ${queueType} queue (training mode activated)`);
+    }
+    
+    // Update all arrays and UI at once after all changes are made
+    initializePlayerArrays();
+    renderPlayerQueue();
+    renderCourtPlayers();
+    saveToLocalStorage();
+    
+  }
+  // Handle players when changing from training mode to regular mode (auto-fill)
+  else if (oldCourtType === "training" && newCourtType !== "training") {
+    console.log(`Court ${courtName} changed from training to ${newCourtType} mode. Auto-filling court.`);
+    
+    // Use a timeout to ensure court arrays are updated before auto-filling
+    setTimeout(() => {
+      autoFillEmptyCourts();
+    }, 500);
+  }
+}
+
+/**
+ * Synchronizes W court types with their paired G courts
+ * - Ensures W courts always have the same type as their paired G court
+ * - Called after court type changes and during initialization
+ */
 function syncWCourtTypes() {
   ["G1", "G2", "G3", "G4"].forEach((gCourt) => {
     const wCourt = courtPairs[gCourt];
@@ -659,6 +622,12 @@ function syncWCourtTypes() {
 // AUTO FILL FUNCTIONALITY
 //======================================================
 
+/**
+ * Provides a debounced version of the auto-fill function
+ * - Prevents multiple rapid auto-fills which could cause conflicts
+ * - Adds delay to allow UI updates to complete
+ * - Checks for drag operations in progress to avoid interrupting user actions
+ */
 function debouncedAutoFill() {
   if (autoFillTimeout) {
     clearTimeout(autoFillTimeout);
@@ -680,20 +649,34 @@ function debouncedAutoFill() {
   }, 500);
 }
 
-async function autoFillEmptyCourts() {
-  if (isUpdatingFirebase) {
-    console.log("Skipping auto-fill: Firebase update in progress");
-    return;
-  }
-
+/**
+ * Core function that manages court balance and player placement
+ * - Balances G courts by moving players from W courts when needed
+ * - Prioritizes filling G courts first, then W courts from queues
+ * - Respects court types and player qualifications
+ * - Skips training courts
+ * - Updates UI after changes
+ * 
+ * This is the primary automation function that maintains court population.
+ * G courts always have priority over W courts when filling from queues.
+ */
+function autoFillEmptyCourts() {
+  console.log("Auto-filling empty courts...");
   syncWCourtTypes();
+  
+  console.log("PRIORITY STEP: First checking if any G courts need balancing from W courts...");
+  
+  // Make sure we have the latest court assignments
+  initializePlayerArrays();
 
   // First, balance G courts by moving players from W courts when needed
   const gCourts = ["G1", "G2", "G3", "G4"];
+  let anyChanges = false;
   
   for (const gCourtName of gCourts) {
     const courtType = courtTypes[gCourtName] || "intermediate";
     if (courtType === "training") {
+      console.log(`Skipping ${gCourtName} as it is in training mode`);
       continue;
     }
     
@@ -701,41 +684,36 @@ async function autoFillEmptyCourts() {
     const wCourtName = courtPairs[gCourtName];
     const wCourtPlayers = courtAssignments[wCourtName] || [];
     
-    // Case 1: If G court is empty and W court has 4 players, move all players to G court
-    if (gCourtPlayers.length === 0 && wCourtPlayers.length === 4) {
+    console.log(`Checking court pair ${gCourtName}/${wCourtName}: G=${gCourtPlayers.length} players, W=${wCourtPlayers.length} players`);
+    
+    // Case 1: If G court is empty and W court has players (at least 2), move them to G court
+    if (gCourtPlayers.length === 0 && wCourtPlayers.length >= 2) {
       try {
-        isUpdatingFirebase = true;
+        // Create a copy to avoid modification issues during iteration
+        const playersToCopy = [...wCourtPlayers];
         
-        for (const playerIndex of wCourtPlayers) {
+        // Log the attempt with more details for debugging
+        console.log(`BALANCING ATTEMPT: Moving ${playersToCopy.length} players from ${wCourtName} to empty ${gCourtName}`);
+        
+        // Move all players from W to G
+        for (const playerIndex of playersToCopy) {
           const player = players[playerIndex];
           if (player) {
+            // Directly update player status
             player.status = gCourtName;
-            pendingUpdates.add(player.id);
-            await updatePlayerStatus(playerIndex, gCourtName);
+            player.modified = true;
             console.log(
               `🎾 Moved ${player.name} from ${wCourtName} to game court ${gCourtName}`
             );
+            anyChanges = true;
           }
         }
 
-        initializePlayerArrays();
-        renderPlayerQueue();
-
         console.log(
-          `Started game on ${gCourtName} with 4 players from ${wCourtName}`
+          `Started game on ${gCourtName} with ${playersToCopy.length} players from ${wCourtName}`
         );
       } catch (error) {
         console.error(`Failed to start game on ${gCourtName}:`, error);
-      } finally {
-        setTimeout(() => {
-          isUpdatingFirebase = false;
-          wCourtPlayers.forEach((playerIndex) => {
-            const player = players[playerIndex];
-            if (player) {
-              pendingUpdates.delete(player.id);
-            }
-          });
-        }, 500);
       }
     } 
     // Case 2: G court has players but not full, and W court has players to share
@@ -745,60 +723,65 @@ async function autoFillEmptyCourts() {
       
       if (playersToMove > 0) {
         try {
-          isUpdatingFirebase = true;
+          // Log the balancing attempt with detailed information
+          console.log(`BALANCING ATTEMPT: ${gCourtName} needs ${playersNeededInG} more players, moving ${playersToMove} from ${wCourtName}`);
           
-          // Move players from W to G court
-          const playersToMoveFromW = wCourtPlayers.slice(0, playersToMove);
+          // Move players from W to G court (create a copy to avoid modification issues)
+          const playersToMoveFromW = [...wCourtPlayers].slice(0, playersToMove);
           for (const playerIndex of playersToMoveFromW) {
             const player = players[playerIndex];
             if (player) {
+              // Directly update player status
               player.status = gCourtName;
-              pendingUpdates.add(player.id);
-              await updatePlayerStatus(playerIndex, gCourtName);
+              player.modified = true;
               console.log(
                 `Balanced: Moved ${player.name} from ${wCourtName} to game court ${gCourtName}`
               );
+              anyChanges = true;
             }
           }
-
-          initializePlayerArrays();
-          renderPlayerQueue();
 
           console.log(
             `Balanced ${gCourtName} by moving ${playersToMove} player(s) from ${wCourtName}`
           );
         } catch (error) {
           console.error(`Failed to balance ${gCourtName} from ${wCourtName}:`, error);
-        } finally {
-          setTimeout(() => {
-            isUpdatingFirebase = false;
-            wCourtPlayers.slice(0, playersToMove).forEach((playerIndex) => {
-              const player = players[playerIndex];
-              if (player) {
-                pendingUpdates.delete(player.id);
-              }
-            });
-          }, 500);
         }
       }
     }
   }
+  
+  // After balancing, reinitialize the arrays to ensure consistent state
+  if (anyChanges) {
+    console.log("Court balancing made changes - reinitializing arrays before continuing");
+    initializePlayerArrays();
+  }
 
-  // Then, fill empty spaces in W courts from the queue
-  const wCourts = ["W1", "W2", "W3", "W4"];
-
-  for (const courtName of wCourts) {
+  // First, fill empty spaces in G courts from the queue (priority)
+  const allCourts = ["G1", "G2", "G3", "G4", "W1", "W2", "W3", "W4"];
+  
+  // Process G courts first, then W courts (prioritizing G courts)
+  for (const courtName of allCourts) {
     const courtType = courtTypes[courtName] || "intermediate";
-
+    
+    // Skip training courts
     if (courtType === "training") {
+      console.log(`Skipping ${courtName} as it is in training mode`);
       continue;
     }
 
     const currentPlayersOnCourt = courtAssignments[courtName] || [];
     const availableSpots = 4 - currentPlayersOnCourt.length;
+    
+    console.log(`Court ${courtName} (${courtType}) has ${availableSpots} available spots`);
 
     if (availableSpots <= 0) {
       continue;
+    }
+
+    // Log priority message for G courts
+    if (courtName.startsWith("G")) {
+      console.log(`Prioritizing filling ${courtName} as it's a G court`);
     }
 
     let playersToAdd = [];
@@ -809,54 +792,50 @@ async function autoFillEmptyCourts() {
         return player && player.qualification === "advanced";
       });
       playersToAdd = availableAdvanced.slice(0, availableSpots);
+      console.log(`Found ${playersToAdd.length} advanced players to add to ${courtName}`);
     } else if (courtType === "intermediate") {
       const availableIntermediate = intermediateQueue.filter((playerIndex) => {
         const player = players[playerIndex];
         return player && player.qualification === "intermediate";
       });
       playersToAdd = availableIntermediate.slice(0, availableSpots);
+      console.log(`Found ${playersToAdd.length} intermediate players to add to ${courtName}`);
     } else {
       playersToAdd = [];
     }
 
     if (playersToAdd.length > 0) {
       try {
-        isUpdatingFirebase = true;
-
         for (const playerIndex of playersToAdd) {
           const player = players[playerIndex];
           if (player) {
             player.status = courtName;
-            pendingUpdates.add(player.id);
-
-            await updatePlayerStatus(playerIndex, courtName);
+            player.modified = true;
             console.log(
               `Auto-filled ${player.name} to waiting court ${courtName}`
             );
+            anyChanges = true;
           }
         }
-
-        initializePlayerArrays();
-        renderPlayerQueue();
 
         console.log(
           `Auto-filled ${playersToAdd.length} player(s) to ${courtName}`
         );
       } catch (error) {
         console.error(`Failed to auto-fill players to ${courtName}:`, error);
-      } finally {
-        setTimeout(() => {
-          isUpdatingFirebase = false;
-
-          playersToAdd.forEach((playerIndex) => {
-            const player = players[playerIndex];
-            if (player) {
-              pendingUpdates.delete(player.id);
-            }
-          });
-        }, 500);
       }
     }
+  }
+  
+  if (anyChanges) {
+    // Update arrays and UI
+    console.log("Changes detected during auto-fill. Updating UI and saving...");
+    initializePlayerArrays();
+    renderPlayerQueue();
+    renderCourtPlayers();
+    saveToLocalStorage();
+  } else {
+    console.log("No changes made during auto-fill");
   }
 }
 
@@ -882,6 +861,7 @@ function stopPeriodicCourtCheck() {
     console.log("Stopped periodic court fill check");
   }
 }
+
 
 //======================================================
 // UI RENDERING AND INTERACTIONS
@@ -998,7 +978,7 @@ function renderCourtPlayers() {
     if (courtElement) {
       const courtLabel = courtId.replace("-court", "");
       const courtType =
-        courtTypes[courtLabel] || courtTypes[courtId] || "intermediate";
+        courtTypes[courtLabel] || courtTypes[courtId] || "training";
 
       const courtPlayersContainer =
         courtElement.querySelector(".court-players");
@@ -1299,20 +1279,54 @@ async function addPlayer() {
     }
   }
 
-  if (!window.playersDB) {
-    alert("Firebase not connected!");
-    return;
-  }
-
   try {
-    console.log("Adding player...");
-    await window.playersDB.addPlayer({
+    console.log("Adding player to memory...");
+    // Generate a temporary ID
+    const tempId = "temp_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+    
+    // Create queue status based on qualification
+    const status = qualification === "advanced" ? "queue-advanced" : "queue-intermediate";
+    
+    // Add to local players array
+    const newPlayer = {
+      id: tempId,
       name: name.trim(),
       qualification: qualification,
-    });
+      status: status,
+      order: Date.now(),
+      isNew: true, // Mark as new for syncing later
+      timestamp: new Date().toISOString(),
+      lastUpdated: new Date().toISOString()
+    };
+    
+    players.push(newPlayer);
+    
+    // Update UI and save to local storage
+    initializePlayerArrays();
+    renderPlayerQueue();
+    saveToLocalStorage();
+    
     console.log(
-      "Added player " + name + " (" + qualification + ") to Firebase"
+      "Added player " + name + " (" + qualification + ") to memory"
     );
+    
+    // If online, also add to Firebase immediately (for new players only)
+    if (window.navigator.onLine && window.playersDB) {
+      try {
+        const playerId = await window.playersDB.addPlayer({
+          name: name.trim(),
+          qualification: qualification,
+        });
+        
+        // Update the local player with the real ID
+        newPlayer.id = playerId;
+        newPlayer.isNew = false;
+        
+        console.log("Also added player to Firebase with ID:", playerId);
+      } catch (e) {
+        console.warn("Couldn't add player to Firebase (will sync later):", e);
+      }
+    }
   } catch (error) {
     console.error("Failed to add player:", error);
     alert("Failed to add player: " + error.message);
@@ -1323,25 +1337,52 @@ async function deletePlayer() {
   const name = prompt("Enter player name to delete:");
   if (!name || !name.trim()) return;
 
-  const player = players.find(
+  const playerIndex = players.findIndex(
     (p) => p.name.toLowerCase() === name.toLowerCase()
   );
-  if (!player) {
+  
+  if (playerIndex === -1) {
     alert("Player not found!");
     return;
   }
+  
+  const player = players[playerIndex];
 
   if (!confirm("Are you sure you want to delete " + player.name + "?")) return;
 
-  if (!window.playersDB) {
-    alert("Firebase not connected!");
-    return;
-  }
-
   try {
-    console.log("Deleting player...");
-    await window.playersDB.deletePlayer(player.id);
-    console.log("Deleted player " + player.name + " from Firebase");
+    console.log("Deleting player from memory...");
+    
+    // For newly added players that haven't been synced, just remove from array
+    if (player.isNew) {
+      players.splice(playerIndex, 1);
+      console.log("Removed new player " + player.name + " from memory");
+    } else {
+      // For existing players, mark as deleted for syncing later
+      if (!deletedPlayers) deletedPlayers = [];
+      deletedPlayers.push(player.id);
+      
+      // Remove from local array
+      players.splice(playerIndex, 1);
+    }
+    
+    // Update UI and save to local storage
+    initializePlayerArrays();
+    renderPlayerQueue();
+    renderCourtPlayers();
+    saveToLocalStorage();
+    
+    console.log("Deleted player " + player.name + " from memory");
+    
+    // If online, also delete from Firebase immediately
+    if (window.navigator.onLine && window.playersDB && !player.isNew) {
+      try {
+        await window.playersDB.deletePlayer(player.id);
+        console.log("Also deleted player from Firebase");
+      } catch (e) {
+        console.warn("Couldn't delete player from Firebase (will sync later):", e);
+      }
+    }
   } catch (error) {
     console.error("Failed to delete player:", error);
     alert("Failed to delete player: " + error.message);
@@ -1401,7 +1442,214 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
+//======================================================
+// LOCAL STORAGE AND SYNC MANAGEMENT
+//======================================================
+
+function saveToLocalStorage() {
+  const data = {
+    players: players,
+    courtTypes: courtTypes,
+    deletedPlayers: deletedPlayers || [],
+    lastSaved: new Date().toISOString()
+  };
+  
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+    console.log("Saved data to local storage");
+  } catch (error) {
+    console.error("Failed to save to local storage:", error);
+  }
+}
+
+function loadFromLocalStorage() {
+  try {
+    const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!data) {
+      console.log("No local data found");
+      return false;
+    }
+    
+    const parsedData = JSON.parse(data);
+    if (!parsedData.players || !parsedData.players.length) {
+      console.log("Invalid local data - missing players");
+      return false;
+    }
+    
+    console.log("Found local data from:", parsedData.lastSaved);
+    
+    // Ask if user wants to continue from last practice session
+    if (confirm("Continue from last practice session?\n\nLast saved: " + 
+               new Date(parsedData.lastSaved).toLocaleString() + 
+               "\nPlayers: " + parsedData.players.length)) {
+      
+      players = parsedData.players;
+      courtTypes = parsedData.courtTypes || {};
+      
+      // If courtTypes is empty or missing any court, initialize with defaults
+      if (Object.keys(courtTypes).length === 0 || 
+          ["G1", "G2", "G3", "G4", "W1", "W2", "W3", "W4"].some(court => !courtTypes[court])) {
+        console.log("Court types missing in local data, using defaults");
+        initializeDefaultCourtTypes();
+      }
+      
+      deletedPlayers = parsedData.deletedPlayers || [];
+      
+      initializePlayerArrays();
+      syncWCourtTypes();
+      renderPlayerQueue();
+      renderCourtPlayers();
+      updateCourtDropdowns();
+      
+      console.log("Loaded data from local storage");
+      return true;
+    }
+  } catch (error) {
+    console.error("Failed to load from local storage:", error);
+  }
+  
+  return false;
+}
+
+function setupLocalBackup() {
+  // Clear any existing interval
+  if (localBackupInterval) {
+    clearInterval(localBackupInterval);
+  }
+  
+  // Set up periodic backup to local storage (every minute)
+  localBackupInterval = setInterval(() => {
+    saveToLocalStorage();
+  }, 60000);
+  
+  console.log("Set up local backup (every minute)");
+}
+
+async function syncWithFirebase() {
+  if (!window.navigator.onLine || !window.playersDB) {
+    alert("Cannot sync with Firebase - you are offline or Firebase is not connected");
+    return;
+  }
+  
+  if (!confirm("Sync all changes with Firebase database?")) {
+    return;
+  }
+  
+  try {
+    console.log("Syncing with Firebase...");
+    let updatedCount = 0;
+    let addedCount = 0;
+    let deletedCount = 0;
+    
+    // 1. Handle deleted players
+    if (deletedPlayers && deletedPlayers.length > 0) {
+      for (const playerId of deletedPlayers) {
+        try {
+          await window.playersDB.deletePlayer(playerId);
+          deletedCount++;
+        } catch (error) {
+          console.error(`Failed to delete player ${playerId}:`, error);
+        }
+      }
+      deletedPlayers = [];
+    }
+    
+    // 2. Update or add players
+    for (const player of players) {
+      try {
+        // Always make sure we're saving players to Firebase with queue status
+        // This ensures they always go into queue when loaded in a new session
+        let syncStatus = player.status;
+        if (!syncStatus.startsWith('queue-')) {
+          syncStatus = player.qualification === 'advanced' ? 'queue-advanced' : 'queue-intermediate';
+        }
+        
+        if (player.isNew) {
+          // Add new player
+          const playerId = await window.playersDB.addPlayer({
+            name: player.name,
+            qualification: player.qualification,
+            status: syncStatus
+          });
+          player.id = playerId;
+          player.isNew = false;
+          addedCount++;
+        } else if (player.modified) {
+          // Update modified player
+          await window.playersDB.updatePlayerStatus(
+            player.id, syncStatus, player.qualification
+          );
+          updatedCount++;
+        }
+        // Clear modified flag
+        delete player.modified;
+      } catch (error) {
+        console.error(`Failed to sync player ${player.name}:`, error);
+      }
+    }
+    
+    // No longer syncing court types - they are only stored locally
+    
+    // Save clean state to local storage
+    saveToLocalStorage();
+    
+    lastSyncTime = new Date();
+    alert(`Sync complete!\n\nAdded: ${addedCount} players\nUpdated: ${updatedCount} players\nDeleted: ${deletedCount} players`);
+    
+  } catch (error) {
+    console.error("Failed to sync with Firebase:", error);
+    alert("Failed to sync with Firebase: " + error.message);
+  }
+}
+
+// Initialize default court types
+function initializeDefaultCourtTypes() {
+  // Default court types
+  courtTypes = {
+    G1: "training",
+    G2: "training",
+    G3: "training",
+    G4: "training",
+    W1: "training",
+    W2: "training",
+    W3: "training",
+    W4: "training"
+  };
+  
+  // Sync W courts with G courts to ensure consistency
+  syncWCourtTypes();
+  
+  console.log("Initialized default court types");
+}
+
 window.onload = () => {
   setupDropTargets();
-  initializeFirebase();
+  
+  // Try to load from local storage first
+  if (!loadFromLocalStorage()) {
+    // If no local data or user declined, initialize with defaults and connect to Firebase
+    console.log("No local data or user declined to load it, initializing with defaults");
+    initializeDefaultCourtTypes();
+    initializePlayerArrays();
+    renderPlayerQueue();
+    renderCourtPlayers();
+    updateCourtDropdowns();
+    
+    // Connect to Firebase
+    initializeFirebase();
+  } else {
+    // If loaded from local storage, still set up backup
+    setupLocalBackup();
+    startPeriodicCourtCheck();
+  }
+  
+  // Add sync button to UI
+  const controlsSection = document.querySelector('.controls-section');
+  if (controlsSection) {
+    const syncButton = document.createElement('button');
+    syncButton.textContent = 'Sync with Database';
+    syncButton.className = 'control-button sync-button';
+    syncButton.onclick = syncWithFirebase;
+    controlsSection.appendChild(syncButton);
+  }
 };
