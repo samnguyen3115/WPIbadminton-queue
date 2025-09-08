@@ -14,7 +14,7 @@ let db = null;
 window.initializeFirebaseApp = (FirebaseApp, FirebaseFirestore) => {
   app = FirebaseApp.initializeApp(firebaseConfig);
   db = FirebaseFirestore.getFirestore(app);
-  console.log("🔥 Firebase initialized successfully");
+  console.log("Firebase initialized successfully");
 };
 
 const playersDB = {
