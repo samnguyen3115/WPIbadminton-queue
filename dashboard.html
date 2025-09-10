@@ -17,6 +17,7 @@
     <button onclick="deletePlayer()" class="btn btn-danger">Delete Player</button>
     <button onclick="showAdvanceMenu()" class="btn btn-advance">Manual Advance Player</button>
     <button onclick="syncWithFirebase()" class="btn btn-sync">Sync with Database</button>
+    <button onclick="startNewSession()" class="btn btn-primary">New Session</button>
   </div>
   <div class="layout-container">
     <div class="main-area">
@@ -198,5 +199,30 @@
   
   <!-- Main application script -->
   <script src="script.js"></script>
+  
+  <!-- Player Pool Modal -->
+  <div id="player-pool-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Player Pool</h2>
+        <span class="close-modal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="player-pool-controls">
+          <input type="text" id="player-pool-search" placeholder="Search players...">
+          <div class="filter-options">
+            <label><input type="checkbox" id="show-active" checked> Show Active</label>
+            <label><input type="checkbox" id="show-inactive" checked> Show Inactive</label>
+          </div>
+        </div>
+        <div id="player-pool-list" class="player-pool-list">
+          <!-- Players will be populated here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="close-pool-modal" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

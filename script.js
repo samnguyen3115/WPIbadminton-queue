@@ -7,6 +7,7 @@ let dragPlayerIndex = null;
 let firebaseUnsubscribe = null;
 let courtsUnsubscribe = null;
 
+let allPlayers = [];
 let deletedPlayers = [];
 let lastSyncTime = null;
 let localBackupInterval = null;
@@ -27,6 +28,43 @@ let isDragging = false;
 let autoFillTimeout = null;
 let lastAutoFillTime = 0;
 let periodicCheckInterval = null;
+
+/**
+ * Starts a new practice session by clearing all local data and fetching fresh from database
+ */
+async function startNewSession() {
+  try {
+    // Clear all local data
+    players = [];
+    advancedQueue = [];
+    intermediateQueue = [];
+    courtAssignments = {};
+    deletedPlayers = [];
+    lastSyncTime = null;
+    
+    // Clear local storage
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    
+    // Reset all courts to default state
+    const courts = ['G1', 'G2', 'G3', 'G4', 'W1', 'W2', 'W3', 'W4'];
+    courts.forEach(court => {
+      courtAssignments[court] = [];
+      courtTypes[court] = 'training';
+      const dropdown = document.querySelector(`#${court}-court select`);
+      if (dropdown) {
+        dropdown.value = 'training';
+      }
+    });
+
+    // Fetch fresh data from database
+    await initializeFirebase();
+        
+    alert('New session started successfully!');
+  } catch (error) {
+    console.error('Error starting new session:', error);
+    alert('Error starting new session. Please try again.');
+  }
+}
 
 /**
  * Initializes the Firebase connection and loads initial data
@@ -67,8 +105,6 @@ async function initializeFirebase() {
 
     initializePlayerArrays();
     renderPlayerQueue();
-
-    initializeDefaultCourtTypes();
     renderCourtPlayers();
     updateCourtDropdowns();
 
@@ -91,15 +127,19 @@ async function initializeFirebase() {
  * - Creates sorted arrays for advanced and intermediate queues
  * - Builds court assignment map to track who is on which court
  * - Used whenever player data changes to keep local data structures in sync
+ * - Only processes active players (isActive === true or undefined)
  */
 function initializePlayerArrays() {
-  advancedQueue = players
-    .map((_, i) => i)
+  const activePlayersIndices = players
+    .map((p, i) => ({ player: p, index: i }))
+    .filter((item) => item.player.isActive !== false)
+    .map((item) => item.index);
+
+  advancedQueue = activePlayersIndices
     .filter((i) => players[i].status === "queue-advanced")
     .sort((a, b) => (players[a].order || 0) - (players[b].order || 0));
 
-  intermediateQueue = players
-    .map((_, i) => i)
+  intermediateQueue = activePlayersIndices
     .filter((i) => players[i].status === "queue-intermediate")
     .sort((a, b) => (players[a].order || 0) - (players[b].order || 0));
 
@@ -1457,8 +1497,11 @@ window.addEventListener("beforeunload", () => {
 });
 
 function saveToLocalStorage() {
+  refreshAllPlayers();
+
   const data = {
     players: players,
+    allPlayers: allPlayers,
     courtTypes: courtTypes,
     deletedPlayers: deletedPlayers || [],
     lastSaved: new Date().toISOString(),
@@ -1488,38 +1531,46 @@ function loadFromLocalStorage() {
 
     console.log("Found local data from:", parsedData.lastSaved);
 
-    if (
-      confirm(
-        "Continue from last practice session?\n\nLast saved: " +
-          new Date(parsedData.lastSaved).toLocaleString() +
-          "\nPlayers: " +
-          parsedData.players.length
-      )
-    ) {
-      players = parsedData.players;
-      courtTypes = parsedData.courtTypes || {};
+    players = parsedData.players;
 
-      if (
-        Object.keys(courtTypes).length === 0 ||
-        ["G1", "G2", "G3", "G4", "W1", "W2", "W3", "W4"].some(
-          (court) => !courtTypes[court]
-        )
-      ) {
-        console.log("Court types missing in local data, using defaults");
-        initializeDefaultCourtTypes();
-      }
-
-      deletedPlayers = parsedData.deletedPlayers || [];
-
-      initializePlayerArrays();
-      syncWCourtTypes();
-      renderPlayerQueue();
-      renderCourtPlayers();
-      updateCourtDropdowns();
-
-      console.log("Loaded data from local storage");
-      return true;
+    if (parsedData.allPlayers && Array.isArray(parsedData.allPlayers)) {
+      allPlayers = parsedData.allPlayers;
+    } else {
+      allPlayers = [...players];
     }
+
+    players.forEach((player) => {
+      if (player.isActive === undefined) {
+        player.isActive = true;
+      }
+    });
+
+    allPlayers.forEach((player) => {
+      if (player.isActive === undefined) {
+        player.isActive = true;
+      }
+    });
+
+    courtTypes = parsedData.courtTypes || {};
+    deletedPlayers = parsedData.deletedPlayers || [];
+
+    // Print out the saved court types
+    console.log("Loaded court types from previous session:");
+    ["G1", "G2", "G3", "G4", "W1", "W2", "W3", "W4"].forEach((courtName) => {
+      const type = courtTypes[courtName] || "intermediate";
+      console.log(`${courtName}: ${type}`);
+    });
+
+    initializePlayerArrays();
+
+    syncWCourtTypes();
+
+    renderPlayerQueue();
+    renderCourtPlayers();
+    updateCourtDropdowns();
+
+    console.log("Loaded data from local storage");
+    return true;
   } catch (error) {
     console.error("Failed to load from local storage:", error);
   }
@@ -1540,14 +1591,23 @@ function setupLocalBackup() {
 }
 
 async function syncWithFirebase() {
-  if (!window.navigator.onLine || !window.playersDB) {
-    alert(
-      "Cannot sync with Firebase - you are offline or Firebase is not connected"
-    );
+  if (!window.navigator.onLine) {
+    alert("Cannot sync with Firebase - you are offline");
     return;
   }
 
   try {
+    if (!window.FirebaseApp || !window.FirebaseFirestore) {
+      throw new Error("Firebase modules not loaded");
+    }
+
+    if (!window.playersDB || !window.db) {
+      window.initializeFirebaseApp(
+        window.FirebaseApp,
+        window.FirebaseFirestore
+      );
+    }
+
     console.log("Syncing with Firebase...");
     let updatedCount = 0;
     let addedCount = 0;
@@ -1624,6 +1684,18 @@ async function syncWithFirebase() {
             player.qualification
           );
 
+          try {
+            await window.playersDB.updateDoc(
+              window.playersDB.doc(window.db, "players", player.id),
+              { isActive: player.isActive }
+            );
+          } catch (e) {
+            console.log(
+              "Note: Could not update isActive status in Firebase",
+              e
+            );
+          }
+
           if (player.modified) {
             updatedCount++;
           }
@@ -1664,22 +1736,362 @@ function initializeDefaultCourtTypes() {
 window.onload = () => {
   setupDropTargets();
 
-  if (!loadFromLocalStorage()) {
+  const hasLocalData = loadFromLocalStorage();
+
+  if (!hasLocalData) {
     console.log(
-      "No local data or user declined to load it, initializing with defaults"
+      "No local data or user declined to load it, initializing empty arrays"
     );
-    initializeDefaultCourtTypes();
     initializePlayerArrays();
     renderPlayerQueue();
     renderCourtPlayers();
     updateCourtDropdowns();
-
-    initializeFirebase().then(() => {
-      setupLocalBackup();
-      startPeriodicCourtCheck();
-    });
-  } else {
-    setupLocalBackup();
-    startPeriodicCourtCheck();
   }
+
+  if (allPlayers.length === 0 || allPlayers.length < players.length) {
+    refreshAllPlayers();
+    console.log(
+      "Initialized allPlayers array with",
+      allPlayers.length,
+      "players"
+    );
+  }
+  setupLocalBackup();
+  startPeriodicCourtCheck();
+
+  const controlsDiv = document.querySelector(".controls");
+  const poolButton = document.createElement("button");
+  poolButton.className = "btn btn-info";
+  poolButton.textContent = "Player Pool";
+  poolButton.onclick = openPlayerPool;
+  controlsDiv.appendChild(poolButton);
+
+  document
+    .getElementById("close-pool-modal")
+    .addEventListener("click", closePlayerPool);
+  document
+    .querySelector(".close-modal")
+    .addEventListener("click", closePlayerPool);
+  document
+    .getElementById("add-pool-player")
+    .addEventListener("click", addPoolPlayer);
+
+  document
+    .getElementById("player-pool-search")
+    .addEventListener("input", renderPlayerPool);
+
+  document
+    .getElementById("show-active")
+    .addEventListener("change", renderPlayerPool);
+  document
+    .getElementById("show-inactive")
+    .addEventListener("change", renderPlayerPool);
+
+  window.addEventListener("click", function (event) {
+    const modal = document.getElementById("player-pool-modal");
+    if (event.target === modal) {
+      closePlayerPool();
+    }
+  });
 };
+
+function openPlayerPool() {
+  refreshAllPlayers();
+
+  console.log("Opening player pool with:", {
+    totalPlayers: players.length,
+    allPlayersTotal: allPlayers.length,
+    activeInAll: allPlayers.filter((p) => p.isActive).length,
+    inactiveInAll: allPlayers.filter((p) => p.isActive === false).length,
+  });
+
+  const modal = document.getElementById("player-pool-modal");
+  modal.style.display = "block";
+  renderPlayerPool();
+}
+
+function closePlayerPool() {
+  const modal = document.getElementById("player-pool-modal");
+  modal.style.display = "none";
+}
+
+function refreshAllPlayers() {
+  const inactivePlayers = allPlayers.filter((p) => p.isActive === false);
+  console.log(
+    `Found ${inactivePlayers.length} inactive players before refresh`
+  );
+
+  if (allPlayers.length > 0) {
+    for (const player of players) {
+      const existingIndex = allPlayers.findIndex((p) => p.id === player.id);
+      if (existingIndex === -1) {
+        allPlayers.push({ ...player, isActive: true });
+      } else {
+        const wasInactive = allPlayers[existingIndex].isActive === false;
+        allPlayers[existingIndex] = {
+          ...player,
+          isActive: wasInactive ? false : true,
+        };
+      }
+    }
+
+    for (const inactivePlayer of inactivePlayers) {
+      const stillExists = allPlayers.some(
+        (p) => p.id === inactivePlayer.id && p.isActive === false
+      );
+      if (!stillExists) {
+        console.log(
+          `Re-adding inactive player ${inactivePlayer.name} to allPlayers`
+        );
+        allPlayers.push({ ...inactivePlayer, isActive: false });
+      }
+    }
+  } else {
+    allPlayers = players.map((player) => ({
+      ...player,
+      isActive: player.isActive !== undefined ? player.isActive : true,
+    }));
+
+    for (const inactivePlayer of inactivePlayers) {
+      if (!allPlayers.some((p) => p.id === inactivePlayer.id)) {
+        allPlayers.push({ ...inactivePlayer, isActive: false });
+      }
+    }
+  }
+
+  allPlayers.forEach((player) => {
+    if (player.isActive === undefined) {
+      player.isActive = true;
+    }
+  });
+
+  console.log(
+    `refreshAllPlayers: ${allPlayers.length} total players (${
+      allPlayers.filter((p) => p.isActive).length
+    } active, ${allPlayers.filter((p) => !p.isActive).length} inactive)`
+  );
+}
+
+function renderPlayerPool() {
+  const poolList = document.getElementById("player-pool-list");
+  const searchTerm =
+    document.getElementById("player-pool-search")?.value?.toLowerCase() || "";
+  const showActive = document.getElementById("show-active")?.checked !== false;
+  const showInactive =
+    document.getElementById("show-inactive")?.checked !== false;
+
+  poolList.innerHTML = "";
+
+  refreshAllPlayers();
+
+  console.log("Rendering player pool:", {
+    totalInAllPlayers: allPlayers.length,
+    active: allPlayers.filter((p) => p.isActive).length,
+    inactive: allPlayers.filter((p) => !p.isActive).length,
+    showingActive: showActive,
+    showingInactive: showInactive,
+  });
+
+  const filteredPlayers = allPlayers.filter((player) => {
+    const matchesSearch = player.name.toLowerCase().includes(searchTerm);
+    const matchesStatus =
+      (player.isActive && showActive) || (!player.isActive && showInactive);
+    return matchesSearch && matchesStatus;
+  });
+
+  filteredPlayers.sort((a, b) => {
+    if (a.isActive !== b.isActive) {
+      return a.isActive ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  filteredPlayers.forEach((player) => {
+    const playerDiv = document.createElement("div");
+    playerDiv.className = `pool-player-item ${
+      player.isActive ? "pool-player-active" : "pool-player-inactive"
+    }`;
+
+    playerDiv.innerHTML = `
+      <div class="player-info">
+        <span class="player-name">${player.name}</span>
+        <span class="player-qualification">${player.qualification}</span>
+      </div>
+      <div class="player-actions">
+        <button class="toggle-${player.isActive ? "inactive" : "active"}" 
+                onclick="togglePlayerActive('${player.id}')">
+          ${player.isActive ? "Deactivate" : "Activate"}
+        </button>
+      </div>
+    `;
+
+    poolList.appendChild(playerDiv);
+  });
+
+  if (filteredPlayers.length === 0) {
+    poolList.innerHTML = "<p>No players found matching your filters.</p>";
+  }
+}
+
+function togglePlayerActive(playerId) {
+  const playerInAll = allPlayers.find((p) => p.id === playerId);
+  const playerIndex = players.findIndex((p) => p.id === playerId);
+
+  console.log(`Toggling active status for player ID ${playerId}:`, {
+    foundInAllPlayers: !!playerInAll,
+    foundInActivePlayers: playerIndex !== -1,
+    currentStatus: playerInAll ? playerInAll.isActive : "unknown",
+  });
+
+  if (playerInAll) {
+    playerInAll.isActive = !playerInAll.isActive;
+    playerInAll.modified = true;
+
+    console.log(
+      `Changed player status to: ${
+        playerInAll.isActive ? "ACTIVE" : "INACTIVE"
+      }`
+    );
+
+    if (playerInAll.isActive) {
+      if (playerIndex === -1) {
+        console.log(`Adding player ${playerInAll.name} back to active players`);
+        players.push({ ...playerInAll });
+        addToAppropriateQueue(playerInAll);
+      } else {
+        players[playerIndex].isActive = true;
+        players[playerIndex].modified = true;
+      }
+    } else {
+      if (playerIndex !== -1) {
+        players[playerIndex].isActive = false;
+        players[playerIndex].modified = true;
+
+        removePlayerFromEverywhere(playerId);
+
+        console.log(
+          `Removing player ${players[playerIndex].name} from active players`
+        );
+        players.splice(playerIndex, 1);
+      }
+    }
+
+    console.log("Player pools after toggle:", {
+      totalPlayers: players.length,
+      allPlayersTotal: allPlayers.length,
+      activeInAll: allPlayers.filter((p) => p.isActive).length,
+      inactiveInAll: allPlayers.filter((p) => p.isActive === false).length,
+    });
+
+    renderPlayerPool();
+    initializePlayerArrays();
+    renderPlayerQueue();
+    renderCourtPlayers();
+    saveToLocalStorage();
+  }
+}
+
+function removeFromQueues(playerId) {
+  const advIndex = advancedQueue.indexOf(playerId);
+  if (advIndex !== -1) {
+    advancedQueue.splice(advIndex, 1);
+  }
+
+  const intIndex = intermediateQueue.indexOf(playerId);
+  if (intIndex !== -1) {
+    intermediateQueue.splice(intIndex, 1);
+  }
+
+  for (const court in courtAssignments) {
+    const courtIndex = courtAssignments[court].indexOf(playerId);
+    if (courtIndex !== -1) {
+      courtAssignments[court].splice(courtIndex, 1);
+    }
+  }
+}
+
+function removePlayerFromEverywhere(playerId) {
+  const playerIndex = players.findIndex((p) => p.id === playerId);
+
+  if (playerIndex === -1) {
+    return;
+  }
+
+  const advIndex = advancedQueue.indexOf(playerIndex);
+  if (advIndex !== -1) {
+    advancedQueue.splice(advIndex, 1);
+  }
+
+  const intIndex = intermediateQueue.indexOf(playerIndex);
+  if (intIndex !== -1) {
+    intermediateQueue.splice(intIndex, 1);
+  }
+
+  for (const court in courtAssignments) {
+    const courtIndex = courtAssignments[court].indexOf(playerIndex);
+    if (courtIndex !== -1) {
+      courtAssignments[court].splice(courtIndex, 1);
+    }
+  }
+
+  console.log(
+    `Removed player ${players[playerIndex].name} from all queues and courts`
+  );
+}
+
+function addToAppropriateQueue(player) {
+  let playerIndex = players.findIndex((p) => p.id === player.id);
+
+  if (playerIndex === -1) {
+    players.push({ ...player, isActive: true });
+    playerIndex = players.length - 1;
+  }
+
+  if (player.qualification === "advanced") {
+    if (!advancedQueue.includes(playerIndex)) {
+      advancedQueue.push(playerIndex);
+    }
+  } else {
+    if (!intermediateQueue.includes(playerIndex)) {
+      intermediateQueue.push(playerIndex);
+    }
+  }
+
+  initializePlayerArrays();
+}
+
+function addPoolPlayer() {
+  const name = prompt("Enter player name:");
+  if (name && name.trim() !== "") {
+    const qualification =
+      prompt("Enter qualification (advanced/intermediate):")?.toLowerCase() ||
+      "intermediate";
+
+    const validQual =
+      qualification === "advanced" || qualification === "intermediate"
+        ? qualification
+        : "intermediate";
+
+    const tempId =
+      "local_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
+
+    const newPlayer = {
+      id: tempId,
+      name: name.trim(),
+      qualification: validQual,
+      isActive: true,
+      isNew: true,
+      status: `queue-${validQual}`,
+      modified: true,
+    };
+
+    allPlayers.push(newPlayer);
+    players.push(newPlayer);
+
+    addToAppropriateQueue(newPlayer);
+
+    renderPlayerPool();
+    renderPlayerQueue();
+    saveToLocalStorage();
+  }
+}

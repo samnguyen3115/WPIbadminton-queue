@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Badminton Queue Management</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Inter', sans-serif;
+      background-color: #f0f2f5;
+    }
+
+    .welcome-container {
+      text-align: center;
+      padding: 2rem;
+    }
+
+    h1 {
+      color: #7B7FE3;
+      margin-bottom: 2rem;
+      font-size: 2rem;
+    }
+
+    .player-pool-button {
+      background: #7B7FE3;
+      color: white;
+      border: none;
+      padding: 1rem 2rem;
+      font-size: 1.1rem;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background-color 0.2s;
+      box-shadow: 0 2px 8px rgba(123, 127, 227, 0.2);
+    }
+
+    .player-pool-button:hover {
+      background: #6266ca;
+    }
+
+    /* Disable all other interactions */
+    .interaction-blocker {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: transparent;
+      z-index: 998;
+      cursor: not-allowed;
+    }
+
+    /* Ensure modal and its button are above the blocker */
+    #player-pool-modal {
+      z-index: 1000;
+    }
+
+    .player-pool-button {
+      position: relative;
+      z-index: 999;
+    }
+  </style>
+</head>
+<body>
+  <!-- Interaction blocker -->
+  <div class="interaction-blocker"></div>
+
+  <!-- Simple welcome screen with player pool button -->
+  <div class="welcome-container">
+    <h1>Welcome to Badminton Queue</h1>
+    <button class="player-pool-button" onclick="openPlayerPool()">Select Your Player</button>
+  </div>
+
+  <script>
+    function openPlayerPool() {
+      const modal = document.getElementById('player-pool-modal');
+      if (modal) {
+        modal.style.display = 'block';
+      }
+    }
+
+    function goToPlayerView() {
+      window.location.href = 'player_dashboard.html';
+    }
+  </script>
+  
+  <!-- Firebase config -->
+  <script src="config.js"></script>
+  
+  <!-- Main application script -->
+  <script src="script.js"></script>
+  
+  <!-- Player Pool Modal -->
+  <div id="player-pool-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Player Pool</h2>
+        <span class="close-modal">&times;</span>
+      </div>
+      <div class="modal-body">
+        <div class="player-pool-controls">
+          <input type="text" id="player-pool-search" placeholder="Search players...">
+          <div class="filter-options">
+            <label><input type="checkbox" id="show-active" checked> Show Active</label>
+            <label><input type="checkbox" id="show-inactive" checked> Show Inactive</label>
+          </div>
+        </div>
+        <div id="player-pool-list" class="player-pool-list">
+          <!-- Players will be populated here -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="close-pool-modal" class="btn" onclick="goToPlayerView()">View Dashboard</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
