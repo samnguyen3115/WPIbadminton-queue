@@ -1,24 +1,44 @@
-import React, { useState } from "react";
+import React, { useMemo } from "react";
+import { useQueueStore } from "../store/useQueueStore";
 
+export default function PartyTable() {
+    const { courtAssignments, playersByIndex } = useQueueStore();
 
-export default function PartyView() {
-    const [partyName] = useState("Friday Night Smash");
-    const [partyCode] = useState("BDMN-4829");
-
-
-    function copyCode() {
-        if (navigator && navigator.clipboard) navigator.clipboard.writeText(partyCode).catch(() => {});
-    }
-
+    const rows = useMemo(() => {
+        const out = [];
+        Object.entries(courtAssignments).forEach(([court, idxs]) => {
+            (idxs || []).forEach((i) => {
+                const p = playersByIndex(i);
+                if (p) out.push({ ...p, court });
+            });
+        });
+        return out;
+    }, [courtAssignments, playersByIndex]);
 
     return (
-        <div style={{ padding: 16 }}>
-            <h2 style={{ margin: 0, fontSize: 20, fontWeight: "700" }}>Party</h2>
-            <div style={{ marginTop: 4, fontSize: 16 }}>{partyName}</div>
-            <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
-                <code>{partyCode}</code>
-                <button onClick={copyCode}>Copy</button>
-            </div>
+        <div className="overflow-x-auto rounded-xl border">
+            <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                <tr>
+                    <th className="px-3 py-2 text-left w-16">#</th>
+                    <th className="px-3 py-2 text-left">Name</th>
+                    <th className="px-3 py-2 text-left">Level</th>
+                    <th className="px-3 py-2 text-left">Court</th>
+                </tr>
+                </thead>
+                <tbody>
+                {rows.length === 0 ? (
+                    <tr><td className="px-3 py-3 text-gray-500" colSpan={4}>No one is on a court</td></tr>
+                ) : rows.map((r, i) => (
+                    <tr key={`${r.name}-${r.court}`} className="odd:bg-white even:bg-gray-50">
+                        <td className="px-3 py-2">{i + 1}</td>
+                        <td className="px-3 py-2">{r.name}</td>
+                        <td className="px-3 py-2 capitalize">{r.qualification}</td>
+                        <td className="px-3 py-2">{r.court}</td>
+                    </tr>
+                ))}
+                </tbody>
+            </table>
         </div>
     );
 }
