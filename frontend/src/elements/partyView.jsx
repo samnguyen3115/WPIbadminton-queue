@@ -1,44 +1,37 @@
-import React, { useMemo } from "react";
-import { useQueueStore } from "../store/useQueueStore";
+import React, { useState } from "react";
 
-export default function PartyTable() {
-    const { courtAssignments, playersByIndex } = useQueueStore();
 
-    const rows = useMemo(() => {
-        const out = [];
-        Object.entries(courtAssignments).forEach(([court, idxs]) => {
-            (idxs || []).forEach((i) => {
-                const p = playersByIndex(i);
-                if (p) out.push({ ...p, court });
-            });
-        });
-        return out;
-    }, [courtAssignments, playersByIndex]);
+export default function PartyView() {
+    const [partyName] = useState("Friday Night Smash");
+    const [partyCode] = useState("BDMN-4829");
+
+
+    const cardStyle = {
+        maxWidth: 720,
+        margin: "16px auto",
+        padding: 24,
+        border: "1px solid #e5e7eb",
+        borderRadius: 12,
+        textAlign: "center",
+    };
+    const titleStyle = { margin: 0, fontSize: 20, fontWeight: 700 };
+    const subStyle = { marginTop: 6, fontSize: 16, opacity: 0.9 };
+    const codeStyle = {
+        display: "inline-block",
+        marginTop: 10,
+        padding: "4px 8px",
+        background: "#f3f4f6",
+        border: "1px solid #e5e7eb",
+        borderRadius: 8,
+        fontFamily: "monospace",
+    };
+
 
     return (
-        <div className="overflow-x-auto rounded-xl border">
-            <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                <tr>
-                    <th className="px-3 py-2 text-left w-16">#</th>
-                    <th className="px-3 py-2 text-left">Name</th>
-                    <th className="px-3 py-2 text-left">Level</th>
-                    <th className="px-3 py-2 text-left">Court</th>
-                </tr>
-                </thead>
-                <tbody>
-                {rows.length === 0 ? (
-                    <tr><td className="px-3 py-3 text-gray-500" colSpan={4}>No one is on a court</td></tr>
-                ) : rows.map((r, i) => (
-                    <tr key={`${r.name}-${r.court}`} className="odd:bg-white even:bg-gray-50">
-                        <td className="px-3 py-2">{i + 1}</td>
-                        <td className="px-3 py-2">{r.name}</td>
-                        <td className="px-3 py-2 capitalize">{r.qualification}</td>
-                        <td className="px-3 py-2">{r.court}</td>
-                    </tr>
-                ))}
-                </tbody>
-            </table>
+        <div style={cardStyle}>
+            <h2 style={titleStyle}>Party</h2>
+            <div style={subStyle}>{partyName}</div>
+            <code style={codeStyle}>{partyCode}</code>
         </div>
     );
 }

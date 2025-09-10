@@ -122,3 +122,35 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Base layout: row on wide/landscape, column on phone portrait */
+.app-layout {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+/* Portrait (phones held vertically) => stack vertically */
+@media (orientation: portrait) {
+  .app-layout {
+    flex-direction: column;
+  }
+}
+
+/* Landscape / desktop => left-to-right */
+@media (orientation: landscape) {
+  .app-layout {
+    flex-direction: row;
+  }
+}
+
+/* Nice container look for each section */
+.panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  background: #fff;
+}

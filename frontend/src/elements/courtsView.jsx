@@ -1,89 +1,79 @@
-import React from "react";
-import { useQueueStore } from "../store/useQueueStore";
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel.jsx";
+import React, { useMemo, useEffect, useState } from "react";
 
-function CourtCard({ courtName }) {
-    const { courtTypes, playersOnCourt, changeCourtType, rotateCourtPlayers } = useQueueStore();
-    const type = courtTypes[courtName] ?? "intermediate";
-    const players = playersOnCourt(courtName);
+import {
+    Carousel,
+    CarouselContent,
+    CarouselItem,
+    CarouselNext,
+    CarouselPrevious,
+} from "@/components/ui/carousel";
 
-    return (
-        <div className={`rounded-xl border shadow p-3 ${courtName.startsWith("G") ? "border-green-500" : "border-amber-500"}`}>
-            <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold">
-                    <span className="mr-2">{courtName}</span>
-                    {courtName.startsWith("G") && (
-                        <button
-                            className="text-xs px-2 py-1 rounded bg-green-600 text-white"
-                            onClick={() => rotateCourtPlayers(courtName)}
-                            title="Finish game - rotate players"
-                        >
-                            Rotate
-                        </button>
-                    )}
-                </div>
 
-                <select
-                    className="border rounded px-2 py-1 text-sm"
-                    value={type}
-                    onChange={(e) => changeCourtType(courtName, e.target.value)}
-                    disabled={courtName.startsWith("W")} // inherits from paired G court
-                    title={courtName.startsWith("W") ? "Inherited from paired G court" : ""}
-                >
-                    <option value="intermediate">Intermediate</option>
-                    <option value="advanced">Advanced</option>
-                    <option value="training">Training</option>
-                </select>
-            </div>
-
-            <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                    <tr>
-                        <th className="px-3 py-2 text-left w-16">#</th>
-                        <th className="px-3 py-2 text-left">Player</th>
-                        <th className="px-3 py-2 text-left">Level</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {(players ?? []).length === 0 ? (
-                        <tr><td colSpan={3} className="px-3 py-3 text-gray-500">Empty</td></tr>
-                    ) : players.map((p, i) => (
-                        <tr key={p.id ?? p.name} className="odd:bg-white even:bg-gray-50">
-                            <td className="px-3 py-2">{i + 1}</td>
-                            <td className="px-3 py-2">{p.name}</td>
-                            <td className="px-3 py-2 capitalize">{p.qualification}</td>
-                        </tr>
-                    ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
+function useMediaQuery(query) {
+    const [matches, setMatches] = useState(() => (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia(query).matches : false);
+    useEffect(() => {
+        if (!window.matchMedia) return;
+        const mql = window.matchMedia(query);
+        const onChange = (e) => setMatches(e.matches);
+        mql.addEventListener("change", onChange);
+        return () => mql.removeEventListener("change", onChange);
+    }, [query]);
+    return matches;
 }
 
-function CourtPair({ g, w }) {
-    return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <CourtCard courtName={g} />
-            <CourtCard courtName={w} />
-        </div>
-    );
-}
 
-export default function CourtCarousel() {
+export default function CourtsView() {
+    const isPhone = useMediaQuery("(max-width: 640px)");
+    const sectionStyle = {
+        maxWidth: 720,
+        margin: "16px auto",
+        padding: 24,
+        border: "1px solid #e5e7eb",
+        borderRadius: 12,
+        textAlign: "center",
+    };
+    const titleStyle = { margin: 0, fontSize: 18, fontWeight: 700 };
+    const cardStyle = {
+        border: "1px solid #e5e7eb",
+        borderRadius: 12,
+        padding: 16,
+        textAlign: "center",
+        height: isPhone ? 160 : "auto", // give vertical Embla a fixed slide height
+    };
+
+
+    const courts = useMemo(
+        () => [
+            { id: 1, name: "Court 1", status: "Playing", players: ["A", "B", "C", "D"] },
+            { id: 2, name: "Court 2", status: "Open", players: [] },
+            { id: 3, name: "Court 3", status: "Queued", players: ["E", "F", "G", "H"] },
+        ],
+        []
+    );
+
+
     return (
-        <div className="relative">
-            <Carousel className="w-full">
-                <CarouselContent>
-                    <CarouselItem className="p-2"><CourtPair g="G1" w="W1" /></CarouselItem>
-                    <CarouselItem className="p-2"><CourtPair g="G2" w="W2" /></CarouselItem>
-                    <CarouselItem className="p-2"><CourtPair g="G3" w="W3" /></CarouselItem>
-                    <CarouselItem className="p-2"><CourtPair g="G4" w="W4" /></CarouselItem>
-                </CarouselContent>
-                <CarouselPrevious />
-                <CarouselNext />
-            </Carousel>
+        <div style={sectionStyle}>
+            <h3 style={titleStyle}>Courts</h3>
+            <div style={{ marginTop: 12 }}>
+                <Carousel className="w-full" orientation={isPhone ? "vertical" : "horizontal"}>
+                    <CarouselContent>
+                        {courts.map((c) => (
+                            <CarouselItem key={c.id}>
+                                <div style={cardStyle}>
+                                    <div style={{ fontWeight: 600 }}>{c.name}</div>
+                                    <div style={{ fontSize: 14, opacity: 0.8, marginTop: 4 }}>Status: {c.status}</div>
+                                    <div style={{ marginTop: 8 }}>
+                                        Players: {c.players.length ? c.players.join(", ") : "None"}
+                                    </div>
+                                </div>
+                            </CarouselItem>
+                        ))}
+                    </CarouselContent>
+                    <CarouselPrevious />
+                    <CarouselNext />
+                </Carousel>
+            </div>
         </div>
     );
 }

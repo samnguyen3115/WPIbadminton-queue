@@ -1,8 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { initializeApp } from "firebase/app";
-import firebase from 'firebase/compat/app';
-import * as firebaseui from 'firebaseui'
-import 'firebaseui/dist/firebaseui.css'
 import {
     getAuth,
     onAuthStateChanged,
