@@ -43,7 +43,7 @@ async function startNewSession() {
     lastSyncTime = null;
     
     // Clear local storage
-    localStorage.removeItem(LOCAL_STORAGE_KEY);
+    localStorage.clear();
     
     // Reset all courts to default state
     const courts = ['G1', 'G2', 'G3', 'G4', 'W1', 'W2', 'W3', 'W4'];
@@ -66,7 +66,10 @@ async function startNewSession() {
     allPlayers.forEach(player => {
       player.isActive = false;
     });
+    console.log('Active Players Count:', allPlayers.filter(player => player.isActive));
     saveToLocalStorage();
+    console.log('Active Players Count:', allPlayers.filter(player => player.isActive));
+
     renderPlayerPool();
 
     alert('New session started successfully!');
@@ -78,12 +81,14 @@ async function startNewSession() {
 
 /**
  * Initializes the Firebase connection and loads initial data
+ * Prints the number of active players
  * - Connects to Firebase services
  * - Loads players data from Firebase database
  * - Loads court data from Firebase database
  * - Sets up local backups and periodic court checks
  */
 async function initializeFirebase() {
+  console.log('Active players:', players.filter(p => p.isActive).length);
   try {
     console.log("Connecting to Firebase...");
 
@@ -1308,20 +1313,13 @@ async function addPlayer() {
     name = prompt("Enter player name:");
     if (!name || !name.trim()) return;
 
-    // Check Firebase initialization before calling checkNameExists
-    if (
-      window.navigator.onLine &&
-      window.playersDB &&
-      typeof window.playersDB.checkNameExists === "function" &&
-      typeof window.FirebaseApp !== "undefined" &&
-      typeof window.FirebaseFirestore !== "undefined" &&
-      typeof db !== "undefined" && db
-    ) {
+    if (window.navigator.onLine && window.playersDB) {
       try {
         const checkResult = await window.playersDB.checkNameExists(name);
+
         if (checkResult.exists) {
           alert(
-            `Name \"${name}\" already exists. Please choose a different name or add a number/initial.`
+            `Name "${name}" already exists. Please choose a different name or add a number/initial.`
           );
           continue;
         } else {
@@ -1329,11 +1327,10 @@ async function addPlayer() {
         }
       } catch (error) {
         console.error("Error checking name:", error);
-        alert("Error checking name. Please make sure Firebase is connected.");
-        return;
+
+        nameIsValid = true;
       }
     } else {
-      // Firebase not initialized, skip duplicate check
       nameIsValid = true;
     }
   }
@@ -1362,8 +1359,30 @@ async function addPlayer() {
   try {
     console.log("Adding player to memory...");
 
-    const status = qualification === "advanced" ? "queue-advanced" : "queue-intermediate";
-    let newPlayer = null;
+    const tempId =
+      "temp_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+
+    const status =
+      qualification === "advanced" ? "queue-advanced" : "queue-intermediate";
+
+    const newPlayer = {
+      id: tempId,
+      name: name.trim(),
+      qualification: qualification,
+      status: status,
+      order: Date.now(),
+      isNew: true,
+      timestamp: new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
+    };
+
+    players.push(newPlayer);
+
+    initializePlayerArrays();
+    renderPlayerQueue();
+    saveToLocalStorage();
+
+    console.log("Added player " + name + " (" + qualification + ") to memory");
 
     if (window.navigator.onLine && window.playersDB) {
       try {
@@ -1371,43 +1390,16 @@ async function addPlayer() {
           name: name.trim(),
           qualification: qualification,
         });
-        newPlayer = {
-          id: playerId,
-          name: name.trim(),
-          qualification: qualification,
-          status: status,
-          order: Date.now(),
-          isNew: false,
-          timestamp: new Date().toISOString(),
-          lastUpdated: new Date().toISOString(),
-        };
-        players.push(newPlayer);
-        initializePlayerArrays();
-        renderPlayerQueue();
-        saveToLocalStorage();
-        console.log("Added player " + name + " (" + qualification + ") to memory and Firebase with ID:", playerId);
+
+        newPlayer.id = playerId;
+        newPlayer.isNew = false;
+
+        console.log("Also added player to Firebase with ID:", playerId);
       } catch (e) {
         console.warn("Couldn't add player to Firebase:", e);
+
         alert("Error adding player to database: " + e.message);
-        return;
       }
-    } else {
-      // Offline mode: add locally only
-      newPlayer = {
-        id: "offline_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-        name: name.trim(),
-        qualification: qualification,
-        status: status,
-        order: Date.now(),
-        isNew: true,
-        timestamp: new Date().toISOString(),
-        lastUpdated: new Date().toISOString(),
-      };
-      players.push(newPlayer);
-      initializePlayerArrays();
-      renderPlayerQueue();
-      saveToLocalStorage();
-      console.log("Added player " + name + " (" + qualification + ") to memory (offline mode)");
     }
   } catch (error) {
     console.error("Failed to add player:", error);
@@ -1708,18 +1700,6 @@ async function syncWithFirebase() {
             player.qualification
           );
 
-          try {
-            await window.playersDB.updateDoc(
-              window.playersDB.doc(window.db, "players", player.id),
-              { isActive: player.isActive }
-            );
-          } catch (e) {
-            console.log(
-              "Note: Could not update isActive status in Firebase",
-              e
-            );
-          }
-
           if (player.modified) {
             updatedCount++;
           }
@@ -1898,6 +1878,7 @@ function refreshAllPlayers() {
 function renderPlayerPool() {
   // Debug: print the unique player pool to console
   const poolList = document.getElementById("player-pool-list");
+
   const searchTerm =
     document.getElementById("player-pool-search")?.value?.toLowerCase() || "";
   const showActive = document.getElementById("show-active")?.checked !== false;
@@ -1911,13 +1892,12 @@ function renderPlayerPool() {
   // Remove duplicate players by id, name, and qualification
   const uniquePlayersMap = {};
   allPlayers.forEach((player) => {
-    const key = `${player.id}_${player.name.toLowerCase()}_${player.qualification}`;
+    const key = `${player.name.toLowerCase()}$`;
     if (!uniquePlayersMap[key]) {
       uniquePlayersMap[key] = player;
     }
   });
   const uniquePlayers = Object.values(uniquePlayersMap);
-  console.log('Unique player pool:', uniquePlayers);
 
   // Variables already declared above, so remove redeclaration
 
