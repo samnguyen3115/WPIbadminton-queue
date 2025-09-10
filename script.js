@@ -93,14 +93,15 @@ async function initializeFirebase() {
     console.log("Players loaded from Firebase:", players.length);
 
     players.forEach((player) => {
-      player.status =
-        player.qualification === "advanced"
-          ? "queue-advanced"
-          : "queue-intermediate";
+        player.isActive = false;
+        player.status =
+          player.qualification === "advanced"
+            ? "queue-advanced"
+            : "queue-intermediate";
 
-      if (!player.order) {
-        player.order = Date.now() + Math.floor(Math.random() * 1000);
-      }
+        if (!player.order) {
+          player.order = Date.now() + Math.floor(Math.random() * 1000);
+        }
     });
 
     initializePlayerArrays();
