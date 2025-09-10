@@ -1,46 +1,53 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import PartyView from "./elements/partyView.jsx";
 import CourtsView from "./elements/courtsView.jsx";
 import QueueView from "./elements/queueView.jsx";
-import { useAuth } from "./components/firebaseAuth.jsx";
+
+
+function useMediaQuery(query) {
+    const [matches, setMatches] = useState(() =>
+        typeof window !== "undefined" && window.matchMedia
+            ? window.matchMedia(query).matches
+            : false
+    );
+    useEffect(() => {
+        if (!window.matchMedia) return;
+        const mql = window.matchMedia(query);
+        const onChange = (e) => setMatches(e.matches);
+        mql.addEventListener("change", onChange);
+        return () => mql.removeEventListener("change", onChange);
+    }, [query]);
+    return matches;
+}
 
 
 export default function App() {
-    const { user, loading, signIn, logOut } = useAuth();
+    const isPhone = useMediaQuery("(max-width: 640px)");
+
+
+    const pageStyle = { minHeight: "100vh", display: "flex", flexDirection: "column" };
+    const headerStyle = { padding: "8px 12px", borderBottom: "1px solid #e5e7eb" };
+    const mainStyle = { flex: 1, overflowY: "auto", padding: isPhone ? "0 0 16px" : "0 0 16px" };
+
+
+    const rowStyle = isPhone
+        ? { display: "flex", flexDirection: "column", gap: 16 }
+        : { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, alignItems: "start" };
 
 
     return (
-        <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-            <header
-                style={{
-                    position: "sticky",
-                    top: 0,
-                    background: "white",
-                    borderBottom: "1px solid #e5e7eb",
-                    padding: "8px 12px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    zIndex: 10,
-                }}
-            >
-                <button
-                    onClick={user ? logOut : signIn}
-                    title={user ? "Sign out" : "Sign in"}
-                    style={{ background: "transparent", border: "none", padding: 0, fontWeight: 600, cursor: "pointer" }}
-                >
-                    {loading ? "Loading" : user ? "Sign out" : "Sign in"}
-                </button>
-                <div style={{ fontSize: 12, opacity: 0.8 }}>
-                    {user ? user.displayName || user.email : "Not signed in"}
-                </div>
+        <div style={pageStyle}>
+            <header style={headerStyle}>
+                <strong>Badminton Queue</strong>
             </header>
 
 
-            <main style={{ flex: 1, overflowY: "auto" }}>
-                <PartyView />
-                <CourtsView />
-                <QueueView />
+            <main style={mainStyle}>
+                <div style={rowStyle}>
+                    <PartyView />
+                    <CourtsView />
+                    <QueueView />
+                </div>
             </main>
         </div>
     );

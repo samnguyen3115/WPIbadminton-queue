@@ -1,79 +1,100 @@
-import React, { useMemo, useEffect, useState } from "react";
-
+import React, { useMemo, useEffect, useState, Fragment } from "react";
 import {
-    Carousel,
-    CarouselContent,
-    CarouselItem,
-    CarouselNext,
-    CarouselPrevious,
-} from "@/components/ui/carousel";
+    Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious,
+} from "../components/ui/carousel.jsx";
 
-
-function useMediaQuery(query) {
-    const [matches, setMatches] = useState(() => (typeof window !== "undefined" && window.matchMedia) ? window.matchMedia(query).matches : false);
+function useMediaQuery(q) {
+    const [m, setM] = useState(() =>
+        typeof window !== "undefined" && window.matchMedia ? window.matchMedia(q).matches : false
+    );
     useEffect(() => {
         if (!window.matchMedia) return;
-        const mql = window.matchMedia(query);
-        const onChange = (e) => setMatches(e.matches);
-        mql.addEventListener("change", onChange);
-        return () => mql.removeEventListener("change", onChange);
-    }, [query]);
-    return matches;
+        const mq = window.matchMedia(q);
+        const h = e => setM(e.matches);
+        mq.addEventListener("change", h);
+        return () => mq.removeEventListener("change", h);
+    }, [q]);
+    return m;
 }
-
 
 export default function CourtsView() {
     const isPhone = useMediaQuery("(max-width: 640px)");
-    const sectionStyle = {
-        maxWidth: 720,
-        margin: "16px auto",
-        padding: 24,
-        border: "1px solid #e5e7eb",
-        borderRadius: 12,
-        textAlign: "center",
-    };
-    const titleStyle = { margin: 0, fontSize: 18, fontWeight: 700 };
-    const cardStyle = {
-        border: "1px solid #e5e7eb",
-        borderRadius: 12,
-        padding: 16,
-        textAlign: "center",
-        height: isPhone ? 160 : "auto", // give vertical Embla a fixed slide height
-    };
-
 
     const courts = useMemo(
         () => [
-            { id: 1, name: "Court 1", status: "Playing", players: ["A", "B", "C", "D"] },
-            { id: 2, name: "Court 2", status: "Open", players: [] },
-            { id: 3, name: "Court 3", status: "Queued", players: ["E", "F", "G", "H"] },
+            { id: "1", name: "Court 1", level: "Advanced" },
+            { id: "2", name: "Court 2", level: "Intermediate" },
+            { id: "3", name: "Court 3", level: "Advanced" },
+            { id: "4", name: "Court 4", level: "Intermediate" },
         ],
         []
     );
 
+    const tilesDesktop = useMemo(
+        () =>
+            courts.flatMap(c => [
+                { key: `c-${c.id}`, title: c.name, level: c.level },            // court
+                { key: `w-${c.id}`, title: `Warm-up ${c.id}`, level: "warmup" }, // warm-up
+            ]),
+        [courts]
+    );
+
+    function Card({ title, level }) {
+        const isWarmup = level === "warmup";
+        const variant = isWarmup ? "warmup" : level === "Advanced" ? "advanced" : "intermediate";
+
+        // inline fallback so borders show even if CSS didn't load
+        const style = {
+            border: "2px solid var(--border-strong, #bfdbfe)",
+            borderRadius: "12px",
+            padding: "14px",
+            textAlign: "center",
+            background: "var(--surface, #fff)",
+        };
+
+        return (
+            <div className={`court-card is-${variant}`} style={style}>
+                <div className="court-card-title" style={{ fontWeight: 700 }}>{title}</div>
+                {!isWarmup && <div className={`badge badge-${variant}`}>{level}</div>}
+            </div>
+        );
+    }
 
     return (
-        <div style={sectionStyle}>
-            <h3 style={titleStyle}>Courts</h3>
-            <div style={{ marginTop: 12 }}>
-                <Carousel className="w-full" orientation={isPhone ? "vertical" : "horizontal"}>
-                    <CarouselContent>
-                        {courts.map((c) => (
-                            <CarouselItem key={c.id}>
-                                <div style={cardStyle}>
-                                    <div style={{ fontWeight: 600 }}>{c.name}</div>
-                                    <div style={{ fontSize: 14, opacity: 0.8, marginTop: 4 }}>Status: {c.status}</div>
-                                    <div style={{ marginTop: 8 }}>
-                                        Players: {c.players.length ? c.players.join(", ") : "None"}
+        <section className="card">
+            <h3 className="section-title">Courts</h3>
+
+            {isPhone ? (
+                <div className="carousel-wrap">
+                    <Carousel orientation="vertical">
+                        <CarouselContent>
+                            {courts.map(c => (
+                                <CarouselItem key={c.id}>
+                                    <div style={{ display: "grid", gap: 12 }}>
+                                        <Card title={c.name} level={c.level} />
+                                        <Card title={`Warm-up ${c.id}`} level="warmup" />
                                     </div>
-                                </div>
-                            </CarouselItem>
-                        ))}
-                    </CarouselContent>
-                    <CarouselPrevious />
-                    <CarouselNext />
-                </Carousel>
-            </div>
-        </div>
+                                </CarouselItem>
+                            ))}
+                        </CarouselContent>
+                        <CarouselPrevious className="btn-nav" />
+                        <CarouselNext className="btn-nav" />
+                    </Carousel>
+                </div>
+            ) : (
+                <div
+                    style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(4, minmax(0, 1fr))", // 4 × 2
+                        gap: 12,
+                        marginTop: 12,
+                    }}
+                >
+                    {tilesDesktop.map(t => (
+                        <Card key={t.key} title={t.title} level={t.level} />
+                    ))}
+                </div>
+            )}
+        </section>
     );
 }
