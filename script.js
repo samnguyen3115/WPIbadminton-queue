@@ -58,7 +58,17 @@ async function startNewSession() {
 
     // Fetch fresh data from database
     await initializeFirebase();
-        
+
+    // Deactivate all players by default after loading
+    players.forEach(player => {
+      player.isActive = false;
+    });
+    allPlayers.forEach(player => {
+      player.isActive = false;
+    });
+    saveToLocalStorage();
+    renderPlayerPool();
+
     alert('New session started successfully!');
   } catch (error) {
     console.error('Error starting new session:', error);
@@ -1298,13 +1308,20 @@ async function addPlayer() {
     name = prompt("Enter player name:");
     if (!name || !name.trim()) return;
 
-    if (window.navigator.onLine && window.playersDB) {
+    // Check Firebase initialization before calling checkNameExists
+    if (
+      window.navigator.onLine &&
+      window.playersDB &&
+      typeof window.playersDB.checkNameExists === "function" &&
+      typeof window.FirebaseApp !== "undefined" &&
+      typeof window.FirebaseFirestore !== "undefined" &&
+      typeof db !== "undefined" && db
+    ) {
       try {
         const checkResult = await window.playersDB.checkNameExists(name);
-
         if (checkResult.exists) {
           alert(
-            `Name "${name}" already exists. Please choose a different name or add a number/initial.`
+            `Name \"${name}\" already exists. Please choose a different name or add a number/initial.`
           );
           continue;
         } else {
@@ -1312,10 +1329,11 @@ async function addPlayer() {
         }
       } catch (error) {
         console.error("Error checking name:", error);
-
-        nameIsValid = true;
+        alert("Error checking name. Please make sure Firebase is connected.");
+        return;
       }
     } else {
+      // Firebase not initialized, skip duplicate check
       nameIsValid = true;
     }
   }
@@ -1344,30 +1362,8 @@ async function addPlayer() {
   try {
     console.log("Adding player to memory...");
 
-    const tempId =
-      "temp_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
-
-    const status =
-      qualification === "advanced" ? "queue-advanced" : "queue-intermediate";
-
-    const newPlayer = {
-      id: tempId,
-      name: name.trim(),
-      qualification: qualification,
-      status: status,
-      order: Date.now(),
-      isNew: true,
-      timestamp: new Date().toISOString(),
-      lastUpdated: new Date().toISOString(),
-    };
-
-    players.push(newPlayer);
-
-    initializePlayerArrays();
-    renderPlayerQueue();
-    saveToLocalStorage();
-
-    console.log("Added player " + name + " (" + qualification + ") to memory");
+    const status = qualification === "advanced" ? "queue-advanced" : "queue-intermediate";
+    let newPlayer = null;
 
     if (window.navigator.onLine && window.playersDB) {
       try {
@@ -1375,16 +1371,43 @@ async function addPlayer() {
           name: name.trim(),
           qualification: qualification,
         });
-
-        newPlayer.id = playerId;
-        newPlayer.isNew = false;
-
-        console.log("Also added player to Firebase with ID:", playerId);
+        newPlayer = {
+          id: playerId,
+          name: name.trim(),
+          qualification: qualification,
+          status: status,
+          order: Date.now(),
+          isNew: false,
+          timestamp: new Date().toISOString(),
+          lastUpdated: new Date().toISOString(),
+        };
+        players.push(newPlayer);
+        initializePlayerArrays();
+        renderPlayerQueue();
+        saveToLocalStorage();
+        console.log("Added player " + name + " (" + qualification + ") to memory and Firebase with ID:", playerId);
       } catch (e) {
         console.warn("Couldn't add player to Firebase:", e);
-
         alert("Error adding player to database: " + e.message);
+        return;
       }
+    } else {
+      // Offline mode: add locally only
+      newPlayer = {
+        id: "offline_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        name: name.trim(),
+        qualification: qualification,
+        status: status,
+        order: Date.now(),
+        isNew: true,
+        timestamp: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+      };
+      players.push(newPlayer);
+      initializePlayerArrays();
+      renderPlayerQueue();
+      saveToLocalStorage();
+      console.log("Added player " + name + " (" + qualification + ") to memory (offline mode)");
     }
   } catch (error) {
     console.error("Failed to add player:", error);
@@ -1773,13 +1796,12 @@ window.onload = () => {
   document
     .querySelector(".close-modal")
     .addEventListener("click", closePlayerPool);
-  document
-    .getElementById("add-pool-player")
-    .addEventListener("click", addPoolPlayer);
 
-  document
-    .getElementById("player-pool-search")
-    .addEventListener("input", renderPlayerPool);
+  // Attach live search event directly after modal opens
+  const searchBox = document.getElementById("player-pool-search");
+  if (searchBox) {
+    searchBox.addEventListener("input", renderPlayerPool);
+  }
 
   document
     .getElementById("show-active")
@@ -1874,6 +1896,7 @@ function refreshAllPlayers() {
 }
 
 function renderPlayerPool() {
+  // Debug: print the unique player pool to console
   const poolList = document.getElementById("player-pool-list");
   const searchTerm =
     document.getElementById("player-pool-search")?.value?.toLowerCase() || "";
@@ -1885,15 +1908,20 @@ function renderPlayerPool() {
 
   refreshAllPlayers();
 
-  console.log("Rendering player pool:", {
-    totalInAllPlayers: allPlayers.length,
-    active: allPlayers.filter((p) => p.isActive).length,
-    inactive: allPlayers.filter((p) => !p.isActive).length,
-    showingActive: showActive,
-    showingInactive: showInactive,
+  // Remove duplicate players by id, name, and qualification
+  const uniquePlayersMap = {};
+  allPlayers.forEach((player) => {
+    const key = `${player.id}_${player.name.toLowerCase()}_${player.qualification}`;
+    if (!uniquePlayersMap[key]) {
+      uniquePlayersMap[key] = player;
+    }
   });
+  const uniquePlayers = Object.values(uniquePlayersMap);
+  console.log('Unique player pool:', uniquePlayers);
 
-  const filteredPlayers = allPlayers.filter((player) => {
+  // Variables already declared above, so remove redeclaration
+
+  const filteredPlayers = uniquePlayers.filter((player) => {
     const matchesSearch = player.name.toLowerCase().includes(searchTerm);
     const matchesStatus =
       (player.isActive && showActive) || (!player.isActive && showInactive);
@@ -1907,6 +1935,7 @@ function renderPlayerPool() {
     return a.name.localeCompare(b.name);
   });
 
+  poolList.innerHTML = "";
   filteredPlayers.forEach((player) => {
     const playerDiv = document.createElement("div");
     playerDiv.className = `pool-player-item ${
@@ -1914,13 +1943,13 @@ function renderPlayerPool() {
     }`;
 
     playerDiv.innerHTML = `
-      <div class="player-info">
-        <span class="player-name">${player.name}</span>
-        <span class="player-qualification">${player.qualification}</span>
+      <div class=\"player-info\">
+        <span class=\"player-name\">${player.name}</span>
+        <span class=\"player-qualification\">${player.qualification}</span>
       </div>
-      <div class="player-actions">
-        <button class="toggle-${player.isActive ? "inactive" : "active"}" 
-                onclick="togglePlayerActive('${player.id}')">
+      <div class=\"player-actions\">
+        <button class=\"toggle-${player.isActive ? "inactive" : "active"}\" 
+                onclick=\"togglePlayerActive('${player.id}')\">
           ${player.isActive ? "Deactivate" : "Activate"}
         </button>
       </div>
@@ -1975,6 +2004,8 @@ function togglePlayerActive(playerId) {
         );
         players.splice(playerIndex, 1);
       }
+      renderPlayerQueue();
+      renderCourtPlayers();
     }
 
     console.log("Player pools after toggle:", {
@@ -2095,4 +2126,7 @@ function addPoolPlayer() {
     renderPlayerQueue();
     saveToLocalStorage();
   }
+}
+function reloadPage(page) {
+  window.location.href = page;
 }
